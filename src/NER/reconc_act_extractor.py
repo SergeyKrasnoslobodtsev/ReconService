@@ -93,10 +93,13 @@ class ReconciliationActExtractor:
                     credit_idx = cell.col
         return debit_idx, credit_idx
 
-    def extract_for_seller(self, seller_info: dict) -> dict: # Changed return type
-        transactions_data = []
+    def extract_for_seller(self, seller_info: dict) -> dict:
+        debit_entries_for_service = []  
+        credit_entries_for_service = [] 
+        valid_dates_for_period = []  
+
         seller_names = set()
-        
+        # ... (логика определения seller_names остается прежней) ...
         if sr := seller_info.get('str_repr'):
             sr_low = sr.lower()
             seller_names.add(sr_low)
@@ -118,6 +121,7 @@ class ReconciliationActExtractor:
         for tbl_idx, tbl in enumerate(self.doc.get_tables()):
             self.logger.info(f"Анализ таблицы {tbl_idx + 1} для акта сверки продавца.")
             main_hdr_cell: typing.Optional[Cell] = None
+            # ... (логика поиска main_hdr_cell остается прежней) ...
             for cell in tbl.cells:
                 if not cell.text: 
                     continue
@@ -130,7 +134,7 @@ class ReconciliationActExtractor:
                 if "по данным" in cell_txt_low and any(v in cell_txt_low for v in sorted_seller_names):
                     main_hdr_cell = cell
                     break
-            
+
             if not main_hdr_cell:
                 self.logger.debug(f"Заголовок продавца не найден в табл. {tbl_idx + 1}.")
                 continue
@@ -149,75 +153,90 @@ class ReconciliationActExtractor:
             self.logger.info(f"Колонки продавца: Дебет(C{debit_col})" + (f", Кредит(C{credit_col})" if credit_col!=-1 else ""))
             
             rows_map: typing.Dict[int, typing.Dict[int, str]] = {}
+            # ... (логика заполнения rows_map остается прежней) ...
             for cell in tbl.cells:
                 if cell.row not in rows_map: 
                     rows_map[cell.row] = {}
-                
                 rows_map[cell.row][cell.col] = cell.text.strip() if cell.text else ""
 
             data_start_row = main_hdr_cell.row + 2
-            # добавил запоминание контекст "год", так как есть документы
-            # где указан только месяц
             last_known_year_in_table: typing.Optional[int] = None
 
             for r_idx in sorted(rows_map.keys()):
-                
                 if r_idx < data_start_row: 
                     continue
                 
                 row_data = rows_map[r_idx]
                 desc = " ".join(filter(None, (row_data.get(c_idx, "") for c_idx in range(debit_col)))).strip()
 
-
                 date_val_str = None 
                 if desc:
-                    # Передаем last_known_year_in_table как контекст
                     date_info = self._extract_date_from_text(desc, context_year=last_known_year_in_table)
                     if date_info:
                         date_val_str = date_info['formatted_str']
-                        # Обновляем контекстный год, если извлеченная дата содержала год
-                        # на случай если когда в данных нет явного года
-                        if date_info.get('year') and date_info['year'] > 0: # Убедимся, что год валидный
+                        if date_info.get('year') and date_info['year'] > 0:
                             last_known_year_in_table = date_info['year']
                 
-                debit_val = format_currency_value(row_data.get(debit_col, ""))
-                credit_val = format_currency_value(row_data.get(credit_col, "")) if credit_col != -1 else ""
+                if date_val_str:
+                    try:
+                        dt_obj = datetime.strptime(date_val_str, "%d.%m.%Y").date()
+                        valid_dates_for_period.append(dt_obj)
+                    except ValueError:
+                        self.logger.warning(f"Не удалось разобрать строку с датой: {date_val_str} для расчета периода в T{tbl_idx}R{r_idx}. Ожидаемый формат ДД.ММ.ГГГГ")
+
+                raw_debit_text = row_data.get(debit_col, "")
+                formatted_debit_str = format_currency_value(raw_debit_text)
+                debit_value = 0.0
+                if formatted_debit_str and formatted_debit_str != "0,00":
+                    try:
+                        debit_value = float(formatted_debit_str.replace(',', '.').replace(' ', ''))
+                    except ValueError:
+                        self.logger.warning(f"Не удалось преобразовать значение дебета '{formatted_debit_str}' в число для T{tbl_idx}R{r_idx}. Используется 0.0.")
                 
-                transactions_data.append({
-                    "table_idx": tbl_idx, 
-                    "row_idx": r_idx, 
-                    "record": desc,
-                    "date": date_val_str, 
-                    "debit": debit_val, 
-                    "credit": credit_val
-                })
-                self.logger.info(f"  Т{tbl_idx}R{r_idx}: Оп='{desc}', Дата={date_val_str or None}, Д={debit_val}, К={credit_val}")
+                raw_credit_text = row_data.get(credit_col, "") if credit_col != -1 else ""
+                formatted_credit_str = format_currency_value(raw_credit_text)
+                credit_value = 0.0
+                if formatted_credit_str and formatted_credit_str != "0,00":
+                    try:
+                        credit_value = float(formatted_credit_str.replace(',', '.').replace(' ', ''))
+                    except ValueError:
+                        self.logger.warning(f"Не удалось преобразовать значение кредита '{formatted_credit_str}' в число для T{tbl_idx}R{r_idx}. Используется 0.0.")
+                
+                if desc: # Создаем запись только если есть описание
+                    if debit_value > 0.0:
+                        debit_entries_for_service.append({
+                            "ner_table_idx": tbl_idx,
+                            "ner_row_idx": r_idx, 
+                            "record": desc,
+                            "date": date_val_str, 
+                            "value": debit_value # Используем float значение
+                        })
+                        self.logger.info(f"  Т{tbl_idx}R{r_idx}: Оп='{desc}', Дата={date_val_str or 'None'}, Д={debit_value:.2f} (исходн: '{formatted_debit_str}')")
+                    elif credit_value > 0.0:
+                        credit_entries_for_service.append({
+                            "ner_table_idx": tbl_idx, 
+                            "ner_row_idx": r_idx, 
+                            "record": desc,
+                            "date": date_val_str, 
+                            "value": credit_value # Используем float значение
+                        })
+                        self.logger.info(f"  Т{tbl_idx}R{r_idx}: Оп='{desc}', Дата={date_val_str or 'None'}, К={credit_value:.2f} (исходн: '{formatted_credit_str}')")
         
-        # Calculate period from transactions
         min_date_str: typing.Optional[str] = None
         max_date_str: typing.Optional[str] = None
         
-        valid_dates = []
-        for trans in transactions_data:
-            if trans.get("date"):
-                try:
-                    # Исправлен формат даты для корректного парсинга ДД.ММ.ГГГГ
-                    dt_obj = datetime.strptime(trans["date"], "%d.%m.%Y").date()
-                    valid_dates.append(dt_obj)
-                except ValueError:
-                    self.logger.warning(f"Could not parse date string: {trans['date']} for period calculation. Expected format DD.MM.YYYY")
-
-        if valid_dates:
-            min_dt = min(valid_dates)
-            max_dt = max(valid_dates)
+        if valid_dates_for_period: # Используем собранные даты
+            min_dt = min(valid_dates_for_period)
+            max_dt = max(valid_dates_for_period)
             min_date_str = min_dt.strftime("%d.%m.%Y")
             max_date_str = max_dt.strftime("%d.%m.%Y")
-            self.logger.info(f"Calculated period for seller: {min_date_str} to {max_date_str}")
+            self.logger.info(f"Рассчитанный период для продавца: с {min_date_str} по {max_date_str}")
         else:
-            self.logger.info("No valid dates found in seller transactions to determine period.")
+            self.logger.info("Не найдено валидных дат в операциях продавца для определения периода.")
 
         return {
-            "transactions": transactions_data,
+            "debit_entries_data": debit_entries_for_service,
+            "credit_entries_data": credit_entries_for_service,
             "period_from": min_date_str,
             "period_to": max_date_str
         }
