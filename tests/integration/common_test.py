@@ -4,6 +4,7 @@ from PIL import Image
 from PIL.ImageDraw import ImageDraw
 from PIL import ImageFont
 import pymupdf
+from pdf2image import convert_from_path
 
 # ---- настройка имён -----------------------------------------------------------
 SCAN_PDF_NAME = "scan_v1.pdf"          # ожидаем True (скан)
@@ -11,7 +12,7 @@ STRUCTURED_PDF_NAME = "АСР СДД 2 кв.2024 (подп. к-а).pdf"  # ож�
 # ------------------------------------------------------------------------------
 
 TESTS_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = TESTS_DIR.parent
+PROJECT_ROOT = TESTS_DIR.parent.parent
 PDF_DIR = PROJECT_ROOT / "pdf"
 
 SCAN_PDF = PDF_DIR / SCAN_PDF_NAME
@@ -46,8 +47,7 @@ def convert_to_pil(pdf_bytes: bytes) -> List[Image.Image]:
     return pages
 
 def load_document_pdf() -> List[Image.Image]:
-    """Загрузка изображения из PDF файла с нормализацией в диапазон [0, 1]."""
-    from pdf2image import convert_from_path
+    """Загружает страницы из PDF-файла SCAN_PDF в виде списка изображений PIL."""
     images = convert_from_path(str(SCAN_PDF.resolve()), dpi=300)
     return images
 
