@@ -4,6 +4,8 @@ import os
 
 import yaml
 
+from pullenti.Sdk import Sdk
+
 def logger_configure(config_path: str = "./config/logging.yaml"):
         with open(config_path, "rt", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
@@ -18,10 +20,13 @@ def logger_configure(config_path: str = "./config/logging.yaml"):
         # Наконец, применяем конфигурацию
         logging.config.dictConfig(cfg)
 
+def InitializationPullenti():
+    Sdk.initialize_all()
 
 class ServiceInitialize:
     @staticmethod
     def initialize() -> None:
         logger_configure()
+        InitializationPullenti()
 
     
