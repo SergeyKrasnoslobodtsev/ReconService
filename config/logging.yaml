@@ -1,0 +1,37 @@
+version: 1
+disable_existing_loggers: False
+
+formatters:
+  standard:
+    format: "[%(asctime)s] [%(levelname)s] [%(name)s:%(lineno)d] - %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: standard
+    stream: ext://sys.stdout
+
+  file:
+    class: logging.handlers.TimedRotatingFileHandler
+    level: INFO
+    formatter: standard
+    filename: logs/app.log     
+    when: midnight
+    interval: 1
+    backupCount: 7
+    encoding: utf8
+    '.':
+      suffix: '%Y-%m-%d'
+      extMatch: '^\d{4}-\d{2}-\d{2}$'
+
+loggers:
+  app:
+    level: DEBUG
+    handlers: [console, file]
+    propagate: False
+root:
+  level: WARNING
+  handlers: [console]
+

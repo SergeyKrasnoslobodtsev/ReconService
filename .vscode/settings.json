@@ -1,0 +1,12 @@
+{
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "python-envs.pythonProjects": [],
+    "python.testing.pytestArgs": [
+        "-s",
+        "tests"
+    ],
+    "python.testing.cwd": "${workspaceFolder}",
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
+}
