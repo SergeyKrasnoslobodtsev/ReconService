@@ -1,63 +1,109 @@
 from fastapi import FastAPI, HTTPException, status as fastapi_status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from .init import ReconciliationActService, ServiceInitialize, ProcessStatusEnum
-from contextlib import asynccontextmanager # Импортируем asynccontextmanager
+import base64 
+
+from .init import ReconciliationActService, ServiceInitialize
+from .schemas import ( 
+    ProcessIdResponse, 
+    ReconciliationActResponseModel, 
+    StatusResponseModel,
+    ReconciliationActRequestModel,
+    ProcessStatusRequest
+)
+from .schemas import ProcessStatusEnum
+
+from contextlib import asynccontextmanager
 
 # Контекстный менеджер для lifespan
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Код, выполняемый при старте приложения
-    # ServiceInitialize.initialize() уже вызывается глобально при импорте,
-    # но если бы была специфичная для старта FastAPI логика, она была бы здесь.
     reconciliation_service.logger.info("FastAPI приложение запускается.")
     yield
-    # Код, выполняемый при остановке приложения
-    reconciliation_service.logger.info("FastAPI приложение останавливается, вызываем shutdown для ReconciliationActService.")
-    reconciliation_service.shutdown()
+    reconciliation_service.logger.info("FastAPI приложение останавливается.")
+    # reconciliation_service.shutdown() # Если необходимо
 
-app = FastAPI(lifespan=lifespan) # Используем lifespan
+app = FastAPI(lifespan=lifespan)
 
-# Инициализация сервисов (остается здесь, т.к. reconciliation_service используется глобально)
 ServiceInitialize.initialize()
 reconciliation_service = ReconciliationActService()
 
-# Pydantic модели для запросов
-class DocumentInput(BaseModel):
-    document: str # base64 encoded PDF
+# Основные эндпоинты API
+@app.get("/")
+async def read_root():
+    return {"message": "Reconciliation Act Service is running"}
 
-class ProcessIdInput(BaseModel):
-    process_id: str
-
-@app.post("/send_reconciliation_act", status_code=fastapi_status.HTTP_202_ACCEPTED)
-async def handle_send_reconciliation_act(input_data: DocumentInput):
+@app.post("/send_reconciliation_act",
+            status_code=fastapi_status.HTTP_201_CREATED, # Согласно общепринятой практике для асинхронных задач
+            response_model=ProcessIdResponse) # Ответ {“process_id”: ...}
+async def handle_send_reconciliation_act(input_data: ReconciliationActRequestModel): # Вход {“document”: “КОД В BASE64”}
     try:
-        process_id = reconciliation_service.send_reconciliation_act(document_b64=input_data.document)
-        return {"process_id": process_id}
+        try:
+            pdf_bytes = base64.b64decode(input_data.document)
+        except base64.binascii.Error as e:
+            reconciliation_service.logger.error(f"Ошибка декодирования base64: {e}")
+            raise HTTPException(status_code=fastapi_status.HTTP_400_BAD_REQUEST, detail="Некорректный формат base64.")
+        
+        process_id = reconciliation_service.send_reconciliation_act(pdf_bytes=pdf_bytes)
+        return ProcessIdResponse(process_id=process_id) 
+    except HTTPException:
+        raise
     except Exception as e:
         reconciliation_service.logger.error(f"Ошибка при вызове send_reconciliation_act: {e}", exc_info=True)
-        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        # Возвращаем ошибку в формате StatusResponseModel, если это уместно, или общую ошибку
+        # В данном случае, если сам вызов сервиса падает, это внутренняя ошибка сервера
+        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Внутренняя ошибка сервера при инициации обработки документа.")
 
-@app.post("/process_status") 
-async def handle_get_process_status(input_data: ProcessIdInput):
+@app.post("/process_status",
+            # response_model не указываем глобально, так как он разный для разных статусов
+            responses={ 
+                fastapi_status.HTTP_200_OK: {"model": ReconciliationActResponseModel, "description": "Документ успешно обработан"},
+                fastapi_status.HTTP_201_CREATED: {"model": StatusResponseModel, "description": "Документ в обработке (статус 0)"},
+                fastapi_status.HTTP_404_NOT_FOUND: {"model": StatusResponseModel, "description": "Процесс не найден (статус -1)"},
+                fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": StatusResponseModel, "description": "Ошибка обработки (статус -2)"}
+            }) 
+async def handle_get_process_status(input_data: ProcessStatusRequest):
     process_id = input_data.process_id
-    response_data, http_status_code = reconciliation_service.get_process_status(process_id)
     
-    if http_status_code == 200: # DONE
-        return response_data
-    elif http_status_code == 202: # WAIT
-        return JSONResponse(content=response_data, status_code=fastapi_status.HTTP_202_ACCEPTED)
-    elif http_status_code == 404: # NOT_FOUND
-        # В response_data уже есть нужная структура {"status": -1, "message": "not found"}
-        raise HTTPException(status_code=fastapi_status.HTTP_404_NOT_FOUND, detail=response_data)
-    elif http_status_code == 500: # ERROR
-        # В response_data уже есть нужная структура {"status": -2, "message": "ERROR_DESCRIPTION"}
-        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=response_data)
-    else:
-        reconciliation_service.logger.warning(f"Неожиданный HTTP статус {http_status_code} от ReconciliationActService для process_id {process_id}")
-        return JSONResponse(content=response_data, status_code=http_status_code)
+    try:
+        response_dict = reconciliation_service.get_process_status(process_id)
+        service_status_value = response_dict.get('status')
 
-# Для локального запуска (не для продакшена с uvicorn)
-if __name__ == "__main__":
-    import uvicorn
-    print("Для запуска используйте: uvicorn src.main:app --reload")
+        # Согласно описанию API:
+        # status 0 (WAIT) -> HTTP 201
+        # status 1 (DONE) -> HTTP 200
+        # status -1 (NOT_FOUND) -> HTTP 404
+        # status -2 (ERROR) -> HTTP 500
+
+        if service_status_value == ProcessStatusEnum.DONE.value: # status: 1
+            # response_dict здесь это ReconciliationActResponseModel.model_dump()
+            return JSONResponse(content=response_dict, status_code=fastapi_status.HTTP_200_OK)
+        
+        elif service_status_value == ProcessStatusEnum.WAIT.value: # status: 0
+            # response_dict здесь это StatusResponseModel.model_dump() с message="wait"
+            return JSONResponse(content=response_dict, status_code=fastapi_status.HTTP_201_CREATED)
+        
+        elif service_status_value == ProcessStatusEnum.NOT_FOUND.value: # status: -1
+            # response_dict здесь это StatusResponseModel.model_dump() с message="not found"
+            # Важно: FastAPI автоматически преобразует detail в JSON, если это dict или Pydantic модель
+            raise HTTPException(status_code=fastapi_status.HTTP_404_NOT_FOUND, detail=response_dict)
+        
+        elif service_status_value == ProcessStatusEnum.ERROR.value: # status: -2
+            # response_dict здесь это StatusResponseModel.model_dump() с message="ERROR_DESCRIPTION"
+            raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=response_dict)
+        
+        else:
+            reconciliation_service.logger.error(f"Неизвестный service_status_value {service_status_value} от get_process_status для ID {process_id}")
+            # Формируем стандартный StatusResponseModel для непредвиденной ошибки
+            error_detail = StatusResponseModel(status=ProcessStatusEnum.ERROR.value, message="Внутренняя ошибка: неизвестный статус от сервиса.").model_dump()
+            raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_detail)
+
+    except HTTPException: # Перехватываем HTTPException, чтобы не попасть в общий Exception handler ниже
+        raise
+    except Exception as e:
+        reconciliation_service.logger.error(f"Критическая ошибка в эндпоинте /process_status для ID {process_id}: {e}", exc_info=True)
+        # Общая ошибка сервера, если что-то пошло не так до вызова сервиса или при неожиданном исключении
+        error_detail = StatusResponseModel(status=ProcessStatusEnum.ERROR.value, message="Внутренняя ошибка сервера при запросе статуса.").model_dump()
+        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_detail)
+
+
+

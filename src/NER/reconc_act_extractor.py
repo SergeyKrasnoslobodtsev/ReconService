@@ -8,7 +8,7 @@ from .utils import extract_quarter_via_regex
 from .utils import extract_dates_via_pullenti
 from .utils import select_best_date_candidate
 
-from src.PDFExtractor.base_extractor import Cell, Document
+from ..PDFExtractor.base_extractor import Cell, Document
 
 class ReconciliationActExtractor:
     """

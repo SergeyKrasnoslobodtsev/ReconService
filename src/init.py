@@ -3,9 +3,10 @@ import logging.config
 import os
 import threading 
 from concurrent.futures import ThreadPoolExecutor
-import time
-
 import yaml
+import uuid
+from typing import List, Optional, Dict, Any # Any убран, если не используется где-то еще
+
 
 from .PDFExtractor.base_extractor import Document
 from .PDFExtractor.scan_extractor import ScanExtractor
@@ -13,11 +14,15 @@ from .NER.ner_service import NERService
 from pullenti.Sdk import Sdk
 
 
-import base64
-import uuid
-from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Dict, Any
-from enum import Enum
+from .schemas import ( 
+    ProcessStatusEnum,
+    RowIdModel,
+    ActEntryModel,
+    PeriodModel,
+    ReconciliationActResponseModel, 
+    InternalProcessDataModel,
+    StatusResponseModel 
+)
 
 def logger_configure(config_path: str = "./config/logging.yaml"):
         with open(config_path, "rt", encoding="utf-8") as f:
@@ -41,108 +46,6 @@ class ServiceInitialize:
         InitializationPullenti()
 
 
-class ProcessStatusEnum(Enum):
-    """
-    Перечисление для статусов обработки документа.
-    Соответствует значениям 'status' в ответах API.
-    """
-    WAIT = 0  # В обработке (сообщение "wait")
-    DONE = 1        # Успешно обработан (сообщение "done")
-    NOT_FOUND = -1  # Не найден (сообщение "not found")
-    ERROR = -2      # Ошибка обработки (сообщение содержит описание ошибки)
-
-@dataclass
-class RowId:
-    """
-    Представляет идентификатор строки в акте сверки.
-    В виде JSON это будет словарь с ключами 'id_table' и 'id_row'.
-    """
-    id_table: int
-    id_row: int
-
-    def to_dict(self) -> Dict[str, int]:
-        return asdict(self)
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, int]) -> 'RowId':
-        return cls(**data)
-
-@dataclass
-class ActEntry:
-    """
-    Представляет одну запись (строку) в акте сверки (дебет/кредит).
-    Используется для данных в полях 'debit' и 'credit'.
-    """
-    row_id: RowId
-    record: str
-    value: float  # Сумма, указана как float в описании
-    date: Optional[str] = None # Дата, может отсутствовать
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Преобразует объект в словарь для JSON-сериализации."""
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ActEntry':
-        """Создает объект из словаря."""
-        return cls(**data)
-
-@dataclass
-class Period:
-    """
-    Представляет период дат (с ... по ...).
-    Используется для поля 'period'.
-    """
-    from_date: str # В API это ключ "from"
-    to_date: str   # В API это ключ "to"
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Преобразует объект в словарь, адаптируя ключи для API ('from', 'to')."""
-        return {"from": self.from_date, "to": self.to_date}
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, str]) -> 'Period':
-        """Создает объект из словаря, ожидая ключи 'from' и 'to'."""
-        return cls(from_date=data["from"], to_date=data["to"])
-
-@dataclass
-class ReconciliationAct:
-    """
-    Представляет акт сверки.
-    """
-    process_id: str
-    status: int  # Статус обработки, соответствует ProcessStatusEnum
-    message: str  # Сообщение для пользователя, например "wait", "done", "not found" или "error"
-    seller: str
-    buyer: str
-    period: Period
-    debit: List[ActEntry]
-    credit: List[ActEntry]
-
-@dataclass
-class InternalProcessData:
-    """
-    Внутреннее представление данных процесса обработки акта сверки.
-    Этот класс не является частью API, а используется сервисом для хранения состояния.
-    """
-    process_id: str
-    original_document_b64: str  # Исходный документ, полученный от пользователя
-    status_enum: ProcessStatusEnum = ProcessStatusEnum.WAIT # Текущий статус обработки
-    # Поля, заполняемые после успешного парсинга документа (этап process_status -> done)
-    seller: Optional[str] = None
-    buyer: Optional[str] = None
-    period: Optional[Period] = None
-    debit_seller: List[ActEntry] = field(default_factory=list)  # Данные продавца
-    credit_seller: List[ActEntry] = field(default_factory=list) # Данные продавца
-    # Поля, заполняемые на этапе fill_reconciliation_act (данные от покупателя)
-    debit_buyer: List[ActEntry] = field(default_factory=list)
-    credit_buyer: List[ActEntry] = field(default_factory=list)
-    # Заполненный документ (результат fill_reconciliation_act)
-    filled_document_b64: Optional[str] = None
-    error_message_detail: Optional[str] = None
-    document_structure: Optional[Document] = None
-
-
 class ReconciliationActService:
     """
     Сервис для обработки актов сверки.
@@ -151,38 +54,37 @@ class ReconciliationActService:
     
     def __init__(self):
         self.logger = logging.getLogger("app." + __name__)
-        self.process_data: Dict[str, InternalProcessData] = {}  # Хранит данные по каждому процессу по ID
-        self._data_lock = threading.Lock() # Блокировка для синхронизации доступа к process_data
-        # Инициализируем ThreadPoolExecutor с ограниченным количеством воркеров
-        # Учитывая, что внутренняя обработка PDF уже может быть многопоточной (4 потока),
-        # выбираем консервативное значение для max_workers на уровне сервиса.
+        # Используем InternalProcessDataModel из schemas.py
+        self.process_data: Dict[str, InternalProcessDataModel] = {} 
+        self._data_lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=2) 
         self.logger.info("ReconciliationActService initialized with ThreadPoolExecutor (max_workers=2).")
 
     def _generate_process_id(self) -> str:
         """
         Генерирует уникальный идентификатор процесса.
-        Используется UUID для обеспечения уникальности.
         """
         return str(uuid.uuid4())
     
-    def send_reconciliation_act(self, document_b64: str) -> str:
+    # document_b64 меняем на pdf_bytes, так как декодирование будет в main.py
+    def send_reconciliation_act(self, pdf_bytes: bytes) -> str:
         """
-        Принимает документ акта сверки в виде base64 и инициирует его асинхронную обработку.
+        Принимает документ акта сверки в виде байтов и инициирует его асинхронную обработку.
         
         Args:
-            document_b64 (str): Исходный документ в формате base64.
+            pdf_bytes (bytes): Исходный документ в виде байтов.
         
         Returns:
             str: Уникальный идентификатор процесса обработки.
         """
         process_id = self._generate_process_id()
         
-        # Начальное состояние процесса (статус WAIT)
-        new_entry = InternalProcessData(
+        # Используем InternalProcessDataModel
+        # document_structure будет заполнен в _process_document
+        new_entry = InternalProcessDataModel(
             process_id=process_id,
-            original_document_b64=document_b64,
-            status_enum=ProcessStatusEnum.WAIT # Явно устанавливаем начальный статус
+            status_enum=ProcessStatusEnum.WAIT 
+            # Остальные поля (seller, buyer, buyer_org_data, period, etc.) будут None или [] по умолчанию
         )
         
         with self._data_lock:
@@ -190,90 +92,60 @@ class ReconciliationActService:
         
         self.logger.info(f"Новый акт сверки поставлен в обработку. ID процесса: {process_id}. Запуск фоновой задачи.")
         
-        # Запускаем ресурсоемкую обработку документа в фоновом потоке
-        self.executor.submit(self._process_document, process_id)
+        # Передаем pdf_bytes и process_id в фоновую задачу
+        self.executor.submit(self._process_document, process_id, pdf_bytes)
         
         return process_id
 
-    def _transform_ner_table_data_to_act_entries(self, ner_table_data: List[Dict[str, Any]]) -> List[ActEntry]:
-        """Преобразует данные таблицы от NERService в список ActEntry.
-        Ожидает, что каждый элемент в ner_table_data будет словарем, содержащим как минимум:
-        'ner_row_idx': int (идентификатор строки от NER)
-        'record': str
-        'value': float (сумма операции в виде числа)
-        'date': Optional[str]
-        """
+    def _transform_ner_table_data_to_act_entries(self, ner_table_data: List[Dict[str, Any]]) -> List[ActEntryModel]:
+        """Преобразует данные таблицы от NERService в список ActEntryModel."""
         act_entries = []
         if not ner_table_data:
             return act_entries
             
         for item in ner_table_data:
-
             row_id_from_ner = item.get('ner_row_idx')
             if row_id_from_ner is None:
-                self.logger.warning(f"Отсутствует 'ner_row_idx' для элемента: {item}. Такой ActEntry не будет создан.")
+                self.logger.warning(f"Отсутствует 'ner_row_idx' для элемента: {item}. Такой ActEntryModel не будет создан.")
                 continue
 
-            act_entries.append(ActEntry(
-                row_id=RowId(
-                    id_table=item.get('ner_table_idx', 0),
-                    id_row=item.get('ner_row_idx', row_id_from_ner)
+            # Используем RowIdModel и ActEntryModel
+            act_entries.append(ActEntryModel(
+                row_id=RowIdModel(
+                    id_table=item.get('ner_table_idx', 0), # Предполагаем 0, если не указано
+                    id_row=row_id_from_ner 
                 ),
                 record=str(item.get('record', '')),
-                value=item.get('value', 0.0),
+                value=float(item.get('value', 0.0)), # Убедимся, что value это float
                 date=item.get('date') 
             ))
         return act_entries
 
-    def _process_document(self, process_id: str) -> None:
+    def _process_document(self, process_id: str, pdf_bytes: bytes) -> None:
         """
-        Выполняет внутреннюю обработку документа: декодирование, извлечение структуры,
+        Выполняет внутреннюю обработку документа: извлечение структуры,
         NER-анализ и сохранение результатов. Эта функция выполняется в фоновом потоке.
         """
-        b64_content_to_process: Optional[str] = None
-        initial_document_structure: Optional[Document] = None
-
-        # Шаг 1: Получаем исходные данные для обработки под блокировкой
-        with self._data_lock:
-            process_entry_for_content = self.process_data.get(process_id)
-            if process_entry_for_content:
-                b64_content_to_process = process_entry_for_content.original_document_b64
-            else:
-                self.logger.error(f"(_process_document) Запись о процессе с ID {process_id} не найдена для извлечения контента.")
-                return # Выход, если запись внезапно исчезла
-
-        if not b64_content_to_process:
-            # Эта ситуация не должна возникать, если send_reconciliation_act отработал корректно
-            self.logger.error(f"(_process_document) Отсутствует контент для обработки для ID {process_id}.")
-            # Можно обновить статус на ERROR здесь, если это необходимо
-            with self._data_lock:
-                entry_to_update = self.process_data.get(process_id)
-                if entry_to_update:
-                    entry_to_update.status_enum = ProcessStatusEnum.ERROR
-                    entry_to_update.error_message_detail = "Internal error: Content for processing not found."
-            return
-
-        # Шаг 2: Выполняем ресурсоемкие операции ВНЕ блокировки
+        # Локальные переменные для хранения результатов перед обновлением process_entry
         local_seller: Optional[str] = None
         local_buyer: Optional[str] = None
-        local_period: Optional[Period] = None
-        local_debit_seller: List[ActEntry] = []
-        local_credit_seller: List[ActEntry] = []
+        local_buyer_org_data: Optional[Dict[str, Any]] = None # Добавлено
+        local_period: Optional[PeriodModel] = None 
+        local_debit_seller: List[ActEntryModel] = []
+        local_credit_seller: List[ActEntryModel] = []
         final_status_for_update: ProcessStatusEnum
         final_error_message_for_update: Optional[str] = None
-        processed_document_structure: Optional[Document] = None
-
+        processed_document_structure: Optional[Document] = None 
 
         try:
             self.logger.info(f"(_process_document) Начало обработки PDF для ID: {process_id}")
-            pdf_bytes = base64.b64decode(b64_content_to_process)
-
+            
+            # pdf_bytes уже переданы в метод
             extractor = ScanExtractor() 
             processed_document_structure = extractor.extract(pdf_bytes)
-            # initial_document_structure теперь processed_document_structure
             self.logger.info(f"(_process_document) Структура документа извлечена для ID: {process_id}")
 
-            ner_service = NERService(processed_document_structure)
+            ner_service = NERService(processed_document_structure) # Передаем структуру документа
             organizations = ner_service.find_document_organizations()
             
             seller_org_info = next((org for org in organizations if org.get('role') == 'продавец'), None)
@@ -281,16 +153,18 @@ class ReconciliationActService:
 
             local_seller = seller_org_info.get('str_repr') if seller_org_info else None
             local_buyer = buyer_org_info.get('str_repr') if buyer_org_info else None
+            local_buyer_org_data = buyer_org_info # Сохраняем весь словарь buyer_org_info
             self.logger.info(f"(_process_document) Продавец: {local_seller}, Покупатель: {local_buyer} для ID: {process_id}")
 
-            if seller_org_info:
+            if seller_org_info: # Продолжаем, только если есть информация о продавце
                 reconciliation_output = ner_service.extract_seller_reconciliation_details(seller_org_info)
                 if reconciliation_output:
                     period_from = reconciliation_output.get('period_from')
                     period_to = reconciliation_output.get('period_to')
                     if period_from and period_to:
-                        local_period = Period(from_date=period_from, to_date=period_to)
-                        self.logger.info(f"(_process_document) Период акта сверки извлечен: {local_period} для ID: {process_id}")
+
+                        local_period = PeriodModel(from_date=period_from, to_date=period_to)
+                        self.logger.info(f"(_process_document) Период акта сверки извлечен: {local_period.model_dump_json(by_alias=True)} для ID: {process_id}")
 
                     debit_entries_data_from_ner = reconciliation_output.get('debit_entries_data', [])
                     credit_entries_data_from_ner = reconciliation_output.get('credit_entries_data', [])
@@ -300,122 +174,101 @@ class ReconciliationActService:
                     self.logger.info(f"(_process_document) Данные по дебету/кредиту продавца извлечены для ID: {process_id}")
                 else:
                     self.logger.warning(f"(_process_document) NERService не вернул деталей сверки для продавца для ID: {process_id}")
-            else:
-                self.logger.warning(f"(_process_document) Продавец не найден, невозможно извлечь детали сверки для ID: {process_id}")
+            else: # Если продавец не найден, это может быть ошибкой 
+                 final_status_for_update = ProcessStatusEnum.ERROR
+                 final_error_message_for_update = "Информация о продавце не найдена в документе."
+                 self.logger.warning(f"(_process_document) Информация о продавце не найдена для ID: {process_id}")
 
-            # Проверка на наличие обязательных данных для статуса DONE
-            if local_seller and local_buyer and local_period:
-                final_status_for_update = ProcessStatusEnum.DONE
-                self.logger.info(f"(_process_document) Документ для ID: {process_id} успешно обработан.")
-            else:
-                final_status_for_update = ProcessStatusEnum.ERROR
-                missing_fields = []
-                if not local_seller: missing_fields.append("продавец")
-                if not local_buyer: missing_fields.append("покупатель")
-                if not local_period: missing_fields.append("период")
-                final_error_message_for_update = f"Не удалось извлечь обязательные поля: {', '.join(missing_fields)}."
-                self.logger.error(f"(_process_document) Ошибка для ID {process_id}: {final_error_message_for_update}")
+
+            # Если все прошло успешно (или частично успешно, но без критических ошибок)
+            final_status_for_update = ProcessStatusEnum.DONE
+            if not local_seller or not local_buyer or not local_period:
+                 self.logger.warning(f"(_process_document) Не все ключевые данные (продавец, покупатель, период) были извлечены для ID: {process_id}. Статус DONE, но данные могут быть неполными.")
+                 # Можно решить, считать ли это ошибкой или нет. Пока оставляем DONE.
 
         except Exception as e:
-            self.logger.exception(f"(_process_document) Исключение при обработке документа для ID {process_id}: {e}")
+            self.logger.exception(f"(_process_document) Ошибка при обработке документа для ID {process_id}: {e}")
             final_status_for_update = ProcessStatusEnum.ERROR
-            final_error_message_for_update = str(e)
-
-        # Шаг 3: Обновляем запись о процессе под блокировкой
+            final_error_message_for_update = f"Ошибка обработки документа: {str(e)}"
+        
+        # Обновляем запись о процессе под блокировкой
         with self._data_lock:
-            process_entry_to_update = self.process_data.get(process_id)
-            if process_entry_to_update:
-                process_entry_to_update.status_enum = final_status_for_update
-                process_entry_to_update.error_message_detail = final_error_message_for_update
-                process_entry_to_update.document_structure = processed_document_structure # Сохраняем извлеченную структуру
-                
+            entry_to_update = self.process_data.get(process_id)
+            if entry_to_update:
+                entry_to_update.status_enum = final_status_for_update
+                entry_to_update.error_message_detail = final_error_message_for_update
+                entry_to_update.document_structure = processed_document_structure
                 if final_status_for_update == ProcessStatusEnum.DONE:
-                    process_entry_to_update.seller = local_seller
-                    process_entry_to_update.buyer = local_buyer
-                    process_entry_to_update.period = local_period
-                    process_entry_to_update.debit_seller = local_debit_seller
-                    process_entry_to_update.credit_seller = local_credit_seller
+                    entry_to_update.seller = local_seller
+                    entry_to_update.buyer = local_buyer
+                    entry_to_update.buyer_org_data = local_buyer_org_data # Сохраняем buyer_org_data
+                    entry_to_update.period = local_period
+                    entry_to_update.debit_seller = local_debit_seller
+                    entry_to_update.credit_seller = local_credit_seller
+                    # debit_buyer и credit_buyer остаются пустыми на этом этапе
+                self.logger.info(f"(_process_document) Завершение обработки для ID: {process_id}. Статус: {final_status_for_update.name}")
             else:
-                # Эта ситуация маловероятна, если запись была на Шаге 1
-                self.logger.error(f"(_process_document) Запись о процессе с ID {process_id} исчезла перед финальным обновлением статуса.")
+                self.logger.error(f"(_process_document) Запись о процессе с ID {process_id} не найдена для обновления статуса.")
 
-
-    def get_process_status(self, process_id: str) -> tuple[Dict[str, Any], int]:
+    def get_process_status(self, process_id: str) -> Dict[str, Any]:
         """
-        Возвращает статус обработки документа и извлеченные данные, если обработка завершена.
-        Доступ к данным процесса синхронизирован.
+        Возвращает статус и результат обработки акта сверки.
         """
-        self.logger.info(f"(get_process_status) Запрос статуса для процесса ID: {process_id}")
-
-        status_to_return: ProcessStatusEnum
-        response_payload: Dict[str, Any]
-        http_status_code: int
-
         with self._data_lock:
             process_entry = self.process_data.get(process_id)
 
-            if not process_entry:
-                self.logger.warning(f"(get_process_status) Процесс с ID: {process_id} не найден.")
-                return ({"status": ProcessStatusEnum.NOT_FOUND.value, "message": "not found"}, 404)
+        if not process_entry:
+            # Используем StatusResponseModel для NOT_FOUND
+            return StatusResponseModel(
+                status=ProcessStatusEnum.NOT_FOUND.value, 
+                message="Процесс с указанным ID не найден."
+            ).model_dump()
 
-            status_to_return = process_entry.status_enum
-
-            if status_to_return == ProcessStatusEnum.WAIT:
-                self.logger.debug(f"(get_process_status) Процесс ID: {process_id} все еще в обработке.")
-                response_payload = {"status": ProcessStatusEnum.WAIT.value, "message": "wait"}
-                http_status_code = 202
-            
-            elif status_to_return == ProcessStatusEnum.ERROR:
-                self.logger.error(f"(get_process_status) Процесс ID: {process_id} завершился с ошибкой: {process_entry.error_message_detail}")
-                response_payload = {
-                    "status": ProcessStatusEnum.ERROR.value, 
-                    "message": process_entry.error_message_detail or "Unknown error"
-                }
-                http_status_code = 500
-
-            elif status_to_return == ProcessStatusEnum.DONE:
-                # Проверка на полноту данных для DONE уже должна быть выполнена в _process_document
-                self.logger.info(f"(get_process_status) Процесс ID: {process_id} успешно завершен.")
-                
-                # Формируем данные для ответа, используя сохраненные в process_entry значения
-                # (которые были установлены в _process_document)
-                
-                # Сначала создаем словарь из ReconciliationAct с помощью asdict
-                # Это даст нам {'period': {'from_date': '...', 'to_date': '...'}}
-                temp_act_data_dict = asdict(ReconciliationAct(
-                    process_id=process_entry.process_id,
-                    status=ProcessStatusEnum.DONE.value,
-                    message="done",
-                    seller=str(process_entry.seller), 
-                    buyer=str(process_entry.buyer),
-                    period=process_entry.period, # Period object
-                    debit=[entry.to_dict() for entry in process_entry.debit_seller], 
-                    credit=[entry.to_dict() for entry in process_entry.credit_seller]
-                ))
-
-                # Теперь вручную заменяем значение ключа 'period'
-                # на результат вызова process_entry.period.to_dict(),
-                # если period существует.
-                if process_entry.period:
-                    temp_act_data_dict['period'] = process_entry.period.to_dict()
-                
-                # Также убедимся, что debit и credit содержат словари, а не объекты ActEntry
-                # Это уже должно быть обработано вызовом entry.to_dict() выше,
-                # но для дополнительной уверенности можно проверить и преобразовать, если необходимо.
-                # В данном случае, если asdict(ReconciliationAct(...)) правильно обработал списки
-                # ActEntry (преобразовав их в списки словарей через их собственные to_dict или asdict),
-                # то дополнительных действий не требуется.
-                # Однако, я явно указал entry.to_dict() при создании ReconciliationAct для ясности.
-
-                response_payload = temp_act_data_dict
-                http_status_code = 200
-            
-            else: # Непредвиденный статус (не должен возникать)
-                self.logger.error(f"(get_process_status) Процесс ID: {process_id} имеет неизвестный статус: {status_to_return}")
-                response_payload = {"status": ProcessStatusEnum.ERROR.value, "message": "Unknown process status"}
-                http_status_code = 500
+        if process_entry.status_enum == ProcessStatusEnum.WAIT:
+            return StatusResponseModel(
+                status=ProcessStatusEnum.WAIT.value,
+                message="Документ в обработке, попробуйте позже."
+            ).model_dump()
         
-        return (response_payload, http_status_code)
+        elif process_entry.status_enum == ProcessStatusEnum.ERROR:
+            return StatusResponseModel(
+                status=ProcessStatusEnum.ERROR.value,
+                message=process_entry.error_message_detail or "Произошла ошибка при обработке документа."
+            ).model_dump()
+
+        elif process_entry.status_enum == ProcessStatusEnum.DONE:
+            if not all([process_entry.seller, process_entry.buyer, process_entry.period]):
+                 # Если основные данные не извлечены, но статус DONE, возвращаем ошибку или специальный статус
+                 self.logger.warning(f"get_process_status: Неполные данные для DONE статуса ID {process_id}. Продавец: {process_entry.seller}, Покупатель: {process_entry.buyer}, Период: {process_entry.period}")
+                 # Можно вернуть StatusResponseModel с сообщением о неполных данных
+                 return StatusResponseModel(
+                    status=ProcessStatusEnum.ERROR.value, # Или другой статус, например, кастомный "PARTIALLY_DONE"
+                    message="Документ обработан, но не все ключевые данные удалось извлечь."
+                 ).model_dump()
+
+            # Формируем ReconciliationActResponseModel
+            # Агрегируем debit_seller и debit_buyer (пока buyer пуст)
+            # Агрегируем credit_seller и credit_buyer (пока buyer пуст)
+            # В вашей ReconciliationActResponseModel поля debit и credit - это общие списки.
+            # На данном этапе у нас есть только debit_seller и credit_seller.
+            # Если в будущем появятся debit_buyer/credit_buyer, их нужно будет добавить сюда.
+            response_data = ReconciliationActResponseModel(
+                process_id=process_entry.process_id,
+                status=ProcessStatusEnum.DONE.value,
+                message="Документ успешно обработан.",
+                seller=process_entry.seller, # Гарантированно не None из-за проверки выше
+                buyer=process_entry.buyer,   # Гарантированно не None
+                period=process_entry.period, # Гарантированно не None
+                debit=process_entry.debit_seller, # Пока только данные продавца
+                credit=process_entry.credit_seller # Пока только данные продавца
+            )
+            return response_data.model_dump(by_alias=True) # by_alias=True для корректной сериализации PeriodModel
+
+        # На случай, если появится новый статус, который не обработан
+        return StatusResponseModel(
+            status=ProcessStatusEnum.ERROR.value,
+            message="Неизвестный статус процесса."
+        ).model_dump()
 
     def shutdown(self):
         """

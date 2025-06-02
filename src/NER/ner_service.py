@@ -4,7 +4,7 @@ from typing import Optional
 
 from .reconc_act_extractor import ReconciliationActExtractor
 from .organization_processor import OrganizationProcessor
-from src.PDFExtractor.base_extractor import Document
+from ..PDFExtractor.base_extractor import Document
 
 
 class NERService:
