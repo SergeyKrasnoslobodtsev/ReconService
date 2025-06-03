@@ -1,0 +1,12 @@
+fastapi==0.115.12
+numpy==2.2.6
+opencv_contrib_python==4.11.0.86
+opencv_python==4.11.0.86
+opencv_python_headless==4.11.0.86
+openpyxl==3.1.5
+Pillow==11.2.1
+pydantic==2.11.5
+pymupdf==1.26.0
+pytesseract==0.3.13
+PyYAML==6.0.2
+uvicorn==0.34.2

@@ -1,4 +1,6 @@
+import os
 from fastapi import FastAPI, HTTPException, status as fastapi_status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import base64 
 
@@ -12,22 +14,67 @@ from .schemas import (
     ProcessStatusRequest,
     FillReconciliationActRequestModel
 )
-
+from .config import AppConfig
 
 from contextlib import asynccontextmanager
 
-# Контекстный менеджер для lifespan
+reconciliation_service: ReconciliationActService = None
+app_config: AppConfig = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    reconciliation_service.logger.info("FastAPI приложение запускается.")
+    """Контекстный менеджер для управления жизненным циклом приложения"""
+    global reconciliation_service
+    
+    print("🚀 FastAPI приложение запускается...")
+    ServiceInitialize.initialize()
+    reconciliation_service = ReconciliationActService()
+    print("✅ ReconciliationActService успешно инициализирован.")
     yield
-    reconciliation_service.logger.info("FastAPI приложение останавливается.")
-    # reconciliation_service.shutdown() # Если необходимо
+    
+    print("🛑 FastAPI приложение останавливается...")
+    if reconciliation_service:
+        reconciliation_service.shutdown()
 
-app = FastAPI(lifespan=lifespan, version="1.0.0", title="Reconciliation Act Service API", description="API для обработки актов сверки")
+def create_app(config: AppConfig) -> FastAPI:
+    """Создает и настраивает FastAPI приложение"""
+    global app_config
+    app_config = config
+    
+    # Создаем FastAPI приложение
+    app = FastAPI(
+        lifespan=lifespan,
+        title=config.api.title,
+        description=config.api.description,
+        version=config.api.version,
+        docs_url=config.api.docs_url,
+        redoc_url=config.api.redoc_url,
+    )
+    
+    # Настраиваем CORS
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.security.allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    
+    return app
 
-ServiceInitialize.initialize()
-reconciliation_service = ReconciliationActService()
+# Функция для обратной совместимости
+def get_app():
+    """Получает приложение для uvicorn"""
+    from .config import config_manager
+    
+    # Пытаемся получить окружение из переменной, установленной start.py
+    environment = os.getenv('_RECON_CONFIG_ENVIRONMENT') or os.getenv('ENVIRONMENT', 'development')
+    config = config_manager.load_config(environment)
+    return create_app(config)
+
+# Создаем приложение по умолчанию
+app = get_app()
 
 # Основные эндпоинты API
 @app.get("/")

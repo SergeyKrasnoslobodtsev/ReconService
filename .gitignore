@@ -6,9 +6,12 @@ __pycache__/
 # C extensions
 *.so
 *.pdf
-
+*.bat
 # Folder
 logs/
+
+config/local.yaml
+config/*.local.yaml
 
 # Distribution / packaging
 .Python

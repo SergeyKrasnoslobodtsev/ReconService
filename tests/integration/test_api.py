@@ -139,7 +139,7 @@ def test_api_fill_reconciliation_act(client: TestClient):
     assert pdf_filled_bytes[:4] == b'%PDF', "Результат не похож на PDF."
 
     # 5. Сохраняем PDF в корень под именем process_id.pdf
-    out_path = os.path.join(os.path.dirname(__file__), "..", "..", f"{process_id}.pdf")
+    out_path = os.path.join(os.path.dirname(__file__), "..", "../temp", f"{process_id}.pdf")
     out_path = os.path.abspath(out_path)
     with open(out_path, "wb") as f:
         f.write(pdf_filled_bytes)

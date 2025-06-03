@@ -1,0 +1,40 @@
+# Основные настройки приложения
+server:
+  host: "0.0.0.0"
+  port: 8000
+  reload: false
+  workers: 1
+  
+# Настройки API
+api:
+  title: "Reconciliation Act Service API"
+  description: "API для обработки актов сверки"
+  version: "1.0.0"
+  docs_url: "/docs"
+  redoc_url: "/redoc"
+  
+# Настройки обработки
+processing:
+  max_workers: 4              # Количество потоков для обработки
+  timeout: 300                # Таймаут обработки в секундах
+  max_file_size: 52428800     # Максимальный размер файла (50MB)
+  
+# Настройки хранения
+storage:
+  temp_dir: "temp"
+  logs_dir: "logs"
+  cleanup_interval: 3600      # Интервал очистки временных файлов (секунды)
+  max_storage_time: 86400     # Время хранения обработанных файлов (секунды)
+
+# Настройки OCR
+ocr:
+  engine: "tesseract"         # tesseract или easyocr
+  language: "rus+eng"
+  
+# Настройки безопасности
+security:
+  max_requests_per_minute: 60
+  allowed_origins: ["*"]
+  
+# Окружение
+environment: "development"    # development, production, testing

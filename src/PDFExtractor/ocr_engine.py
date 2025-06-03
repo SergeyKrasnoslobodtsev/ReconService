@@ -38,23 +38,12 @@ class Engine(ABC):
 
     def preprocess(self, gray: np.ndarray) -> np.ndarray:
 
-        # h, w = gray.shape
-
-        # _, thresh = cv2.threshold(
-        #     gray, 
-        #     0, 255, 
-        #     cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU
-        # )  
-
-
-        # clean = cv2.bitwise_not(thresh)
         border = 5
         gray = cv2.copyMakeBorder(
             gray, border, border, border, border,
             borderType=cv2.BORDER_CONSTANT,
             value=255
         )
-        # blur = cv2.medianBlur(clean, 3)
 
         return gray
 
@@ -75,43 +64,46 @@ class TesseractEngine(Engine):
                 words.append(data['text'][i])
                 x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
                 boxes.append((x, y, w, h))
-        
-        # Объединяем все слова в одну строку через пробел
+
         text = " ".join(words)
 
-        #boxes = self.detected_text(image) # Ваш метод для получения bounding boxes блоков
+        #boxes = self.detected_text(image) 
         return (text, boxes)
     
 
 class EasyOcrEngine(Engine):
     def __init__(self):
-        os.environ["KMP_DEVICE_THREAD_LIMIT"] = "4"
-        os.environ["OMP_THREAD_LIMIT"] = "4"
-        import easyocr
+        # os.environ["KMP_DEVICE_THREAD_LIMIT"] = "4"
+        # os.environ["OMP_THREAD_LIMIT"] = "4"
+        # import easyocr
         
-        self.reader = easyocr.Reader(['ru', 'en'], gpu=False)
+        # self.reader = easyocr.Reader(['ru', 'en'], gpu=False)
+        ...
 
     def extract_text(self, image: np.ndarray) -> Tuple[str, List[Tuple[int, int, int, int]]]:
-        image = self.preprocess(image)
-        result = self.reader.readtext(image)
-        text = " ".join([res[1] for res in result])
-        if text != '':
-            boxes = self.detected_text(image)
-        return text, boxes
+        # image = self.preprocess(image)
+        # result = self.reader.readtext(image)
+        # text = " ".join([res[1] for res in result])
+        # if text != '':
+        #     boxes = self.detected_text(image)
+        # return text, boxes
+        ...
 
 class PaddleOcrEngine(Engine):
     def __init__(self):
-        os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-        from paddleocr import PaddleOCR
-        self.reader = PaddleOCR(use_angle_cls=True, lang='ru')
+        # os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+        # from paddleocr import PaddleOCR
+        # self.reader = PaddleOCR(use_angle_cls=True, lang='ru')
+        ...
     
     def extract_text(self, image: np.ndarray) -> Tuple[str, List[Tuple[int, int, int, int]]]:
-        image = self.preprocess(image)
-        result = self.reader.ocr(image, cls=False)
-        text = " ".join([res[1][0] for res in result])
-        if text != '':
-                boxes = self.detected_text(image)
-        return text, boxes
+        # image = self.preprocess(image)
+        # result = self.reader.ocr(image, cls=False)
+        # text = " ".join([res[1][0] for res in result])
+        # if text != '':
+        #         boxes = self.detected_text(image)
+        # return text, boxes
+        ...
 
 class OCR:
     def __init__(self, ocr_engine:Optional[OcrEngine]):

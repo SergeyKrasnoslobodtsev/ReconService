@@ -128,16 +128,9 @@ class ReconciliationActService:
         Выполняет внутреннюю обработку документа: извлечение структуры,
         NER-анализ и сохранение результатов. Эта функция выполняется в фоновом потоке.
         """
-        # Локальные переменные для хранения результатов перед обновлением process_entry
-        local_seller: Optional[str] = None
-        local_buyer: Optional[str] = None
-        local_buyer_org_data: Optional[Dict[str, Any]] = None
-        local_period: Optional[PeriodModel] = None 
-        local_debit_seller: List[ActEntryModel] = []
-        local_credit_seller: List[ActEntryModel] = []
-        final_status_for_update: ProcessStatus
+        final_status_for_update = ProcessStatus.ERROR
         final_error_message_for_update: Optional[str] = None
-        processed_document_structure: Optional[Document] = None 
+        processed_document_structure: Optional[Document] = None
 
         try:
             self.logger.info(f"(_process_document) Начало обработки PDF для ID: {process_id}")
@@ -147,81 +140,104 @@ class ReconciliationActService:
             processed_document_structure = extractor.extract(pdf_bytes)
             self.logger.info(f"(_process_document) Структура документа извлечена для ID: {process_id}")
 
-            # Инициализируем NER сервис
+            # Инициализируем NER сервис и извлекаем организации
             ner_service = NERService(processed_document_structure) 
-            organizations = ner_service.find_document_organizations()
+            ner_service.find_document_organizations()
             
-            # Ищем организации
-            seller_org_info = next((org for org in organizations if org.get('role') == 'продавец'), None)
-            buyer_org_info = next((org for org in organizations if org.get('role') == 'покупатель'), None)
-
-            local_seller = seller_org_info.get('str_repr') if seller_org_info else None
-            local_buyer = buyer_org_info.get('str_repr') if buyer_org_info else None
-            local_buyer_org_data = buyer_org_info 
-            
-            self.logger.info(f"(_process_document) Продавец: {local_seller}, Покупатель: {local_buyer} для ID: {process_id}")
-
-            # Проверяем критичные данные
-            if not seller_org_info:
-                final_status_for_update = ProcessStatus.ERROR
+            # Проверяем наличие продавца
+            if not ner_service.get_seller_info:
                 final_error_message_for_update = "Информация о продавце не найдена в документе."
-                self.logger.error(f"(_process_document) Информация о продавце не найдена для ID: {process_id}")
-            elif not buyer_org_info:
-                final_status_for_update = ProcessStatus.ERROR
+                self.logger.error(f"(_process_document) {final_error_message_for_update} для ID: {process_id}")
+                return
+            
+            # Проверяем наличие покупателя
+            if not ner_service.get_buyer_info:
                 final_error_message_for_update = "Информация о покупателе не найдена в документе."
-                self.logger.error(f"(_process_document) Информация о покупателе не найдена для ID: {process_id}")
-            else:
-                # Извлекаем детали сверки продавца
-                reconciliation_output = ner_service.extract_seller_reconciliation_details(seller_org_info)
-                if reconciliation_output:
-                    period_from = reconciliation_output.get('period_from')
-                    period_to = reconciliation_output.get('period_to')
-                    
-                    if period_from and period_to:
-                        local_period = PeriodModel(from_date=period_from, to_date=period_to)
-                        self.logger.info(f"(_process_document) Период акта сверки извлечен: {local_period.model_dump_json(by_alias=True)} для ID: {process_id}")
-                    else:
-                        final_status_for_update = ProcessStatus.ERROR  
-                        final_error_message_for_update = "Не удалось определить период сверки."
-                        self.logger.error(f"(_process_document) Период сверки не найден для ID: {process_id}")
+                self.logger.error(f"(_process_document) {final_error_message_for_update} для ID: {process_id}")
+                return
+                
+            self.logger.info(f"(_process_document) Продавец: {ner_service.get_seller_name}, Покупатель: {ner_service.get_buyer_name} для ID: {process_id}")
 
-                    if local_period:  # Только если период найден
-                        debit_entries_data_from_ner = reconciliation_output.get('debit_entries_data', [])
-                        credit_entries_data_from_ner = reconciliation_output.get('credit_entries_data', [])
+            # Извлекаем детали сверки продавца
+            reconciliation_output = ner_service.extract_seller_reconciliation_details(ner_service.get_seller_info)
+            if not reconciliation_output:
+                final_error_message_for_update = "NERService не вернул деталей сверки для продавца."
+                self.logger.error(f"(_process_document) {final_error_message_for_update} для ID: {process_id}")
+                return
 
-                        local_debit_seller = self._transform_ner_table_data_to_act_entries(debit_entries_data_from_ner)
-                        local_credit_seller = self._transform_ner_table_data_to_act_entries(credit_entries_data_from_ner)
-                        self.logger.info(f"(_process_document) Данные по дебету/кредиту продавца извлечены для ID: {process_id}")
-                        
-                        # Все ключевые данные получены
-                        final_status_for_update = ProcessStatus.DONE
-                else:
-                    final_status_for_update = ProcessStatus.ERROR
-                    final_error_message_for_update = "NERService не вернул деталей сверки для продавца."
-                    self.logger.error(f"(_process_document) NERService не вернул деталей сверки для продавца для ID: {process_id}")
+            # Проверяем период сверки
+            period_from = reconciliation_output.get('period_from')
+            period_to = reconciliation_output.get('period_to')
+
+            if not (period_from and period_to):
+                final_error_message_for_update = "Не удалось определить период сверки."
+                self.logger.warning(f"(_process_document) {final_error_message_for_update} для ID: {process_id}")
+                
+
+            # Все проверки пройдены, формируем данные
+            local_period = PeriodModel(from_date=period_from, to_date=period_to)
+            self.logger.info(f"(_process_document) Период акта сверки извлечен: {local_period.model_dump_json(by_alias=True)} для ID: {process_id}")
+
+            # Преобразуем данные дебета/кредита
+            debit_entries_data = reconciliation_output.get('debit_entries_data', [])
+            credit_entries_data = reconciliation_output.get('credit_entries_data', [])
+            
+            local_debit_seller = self._transform_ner_table_data_to_act_entries(debit_entries_data)
+            local_credit_seller = self._transform_ner_table_data_to_act_entries(credit_entries_data)
+            self.logger.info(f"(_process_document) Данные по дебету/кредиту продавца извлечены для ID: {process_id}")
+
+            # Все данные успешно извлечены
+            final_status_for_update = ProcessStatus.DONE
+            final_error_message_for_update = None
 
         except Exception as e:
             self.logger.exception(f"(_process_document) Ошибка при обработке документа для ID {process_id}: {e}")
-            final_status_for_update = ProcessStatus.ERROR
             final_error_message_for_update = f"Ошибка обработки документа: {str(e)}"
         
-        # Обновляем запись о процессе под блокировкой (ваш существующий код)
+        finally:
+            # Обновляем запись о процессе под блокировкой
+            self._update_process_entry(
+                process_id=process_id,
+                status=final_status_for_update,
+                error_message=final_error_message_for_update,
+                document_structure=processed_document_structure,
+                ner_service=ner_service if final_status_for_update == ProcessStatus.DONE else None,
+                period=local_period if final_status_for_update == ProcessStatus.DONE else None,
+                debit_seller=local_debit_seller if final_status_for_update == ProcessStatus.DONE else [],
+                credit_seller=local_credit_seller if final_status_for_update == ProcessStatus.DONE else []
+            )
+
+    def _update_process_entry(
+        self, 
+        process_id: str, 
+        status: ProcessStatus, 
+        error_message: Optional[str],
+        document_structure: Optional[Document],
+        ner_service: Optional[NERService] = None,
+        period: Optional[PeriodModel] = None,
+        debit_seller: List[ActEntryModel] = None,
+        credit_seller: List[ActEntryModel] = None
+    ) -> None:
+        """Обновляет запись о процессе обработки документа."""
         with self._data_lock:
             entry_to_update = self.process_data.get(process_id)
-            if entry_to_update:
-                entry_to_update.status_enum = final_status_for_update
-                entry_to_update.error_message_detail = final_error_message_for_update
-                entry_to_update.document_structure = processed_document_structure
-                if final_status_for_update == ProcessStatus.DONE:
-                    entry_to_update.seller = local_seller
-                    entry_to_update.buyer = local_buyer
-                    entry_to_update.buyer_org_data = local_buyer_org_data 
-                    entry_to_update.period = local_period
-                    entry_to_update.debit_seller = local_debit_seller
-                    entry_to_update.credit_seller = local_credit_seller
-                self.logger.info(f"(_process_document) Завершение обработки для ID: {process_id}. Статус: {final_status_for_update.name}")
-            else:
-                self.logger.error(f"(_process_document) Запись о процессе с ID {process_id} не найдена для обновления статуса.")
+            if not entry_to_update:
+                self.logger.error(f"(_update_process_entry) Запись о процессе с ID {process_id} не найдена для обновления статуса.")
+                return
+
+            entry_to_update.status_enum = status
+            entry_to_update.error_message_detail = error_message
+            entry_to_update.document_structure = document_structure
+            
+            if status == ProcessStatus.DONE and ner_service:
+                entry_to_update.seller = ner_service.get_seller_name
+                entry_to_update.buyer = ner_service.get_buyer_name
+                entry_to_update.buyer_org_data = ner_service.get_buyer_info
+                entry_to_update.period = period
+                entry_to_update.debit_seller = debit_seller or []
+                entry_to_update.credit_seller = credit_seller or []
+            
+            self.logger.info(f"(_update_process_entry) Завершение обработки для ID: {process_id}. Статус: {status.name}")
 
     def get_process_status(self, process_id: str) -> Dict[str, Any]:
         """
@@ -255,7 +271,7 @@ class ReconciliationActService:
                  self.logger.warning(f"get_process_status: Неполные данные для DONE статуса ID {process_id}. Продавец: {process_entry.seller}, Покупатель: {process_entry.buyer}, Период: {process_entry.period}")
                  # Можно вернуть StatusResponseModel с сообщением о неполных данных
                  return StatusResponseModel(
-                    status=ProcessStatus.ERROR.value, # Или другой статус, например, кастомный "PARTIALLY_DONE"
+                    status=ProcessStatus.ERROR.value, 
                     message="Документ обработан, но не все ключевые данные удалось извлечь."
                  ).model_dump()
 
@@ -292,74 +308,135 @@ class ReconciliationActService:
         Возвращает PDF в виде байтов.
         """
         process_id = request.process_id
-        with self._data_lock:
-            process_entry = self.process_data.get(process_id)
-        if not process_entry:
-            raise ValueError(f"Процесс с ID {process_id} не найден.")
-        if process_entry.status_enum != ProcessStatus.DONE:
-            raise ValueError(f"Невозможно заполнить акт сверки для процесса с ID {process_id}, статус: {process_entry.status_enum.name}.")
+        
+        try:
+            # Получаем процесс под блокировкой
+            with self._data_lock:
+                process_entry = self.process_data.get(process_id)
+            
+            if not process_entry:
+                error_msg = f"Процесс с ID {process_id} не найден."
+                self.logger.error(f"(fill_reconciliation_act) {error_msg}")
+                raise ValueError(error_msg)
+            
+            if process_entry.status_enum != ProcessStatus.DONE:
+                error_msg = f"Невозможно заполнить акт сверки для процесса с ID {process_id}, статус: {process_entry.status_enum.name}."
+                self.logger.error(f"(fill_reconciliation_act) {error_msg}")
+                raise ValueError(error_msg)
 
-        doc:Document = process_entry.document_structure
+            self.logger.info(f"(fill_reconciliation_act) Начало заполнения акта сверки для ID: {process_id}")
 
-        # Получаем изображения страниц
-        images = convert_to_pil(doc.pdf_bytes)
-        tables: list[Table] = doc.get_tables()
-        render_images = images.copy()
+            doc: Document = process_entry.document_structure
 
-        # Получаем значения из оригинального документа для buyer (по новым правилам)
-        ner_service = NERService(doc)
-        buyer_extracted = ner_service.extract_buyer_reconciliation_details(process_entry.buyer_org_data)
-        # buyer_extracted: dict с debit_entries_data и credit_entries_data
-        buyer_debit = {(d['ner_table_idx'], d['ner_row_idx'], d['ner_col_idx']): d for d in buyer_extracted.get('debit_entries_data', [])}
-        buyer_credit = {(d['ner_table_idx'], d['ner_row_idx'], d['ner_col_idx']): d for d in buyer_extracted.get('credit_entries_data', [])}
+            # Получаем изображения страниц
+            images = convert_to_pil(doc.pdf_bytes)
+            tables: list[Table] = doc.get_tables()
+            render_images = images.copy()
 
-        # Объединяем все записи для заполнения: debit и credit
-        all_entries = [(entry, 'debit') for entry in request.debit] + [(entry, 'credit') for entry in request.credit]
+            # Получаем значения из оригинального документа для buyer (по новым правилам)
+            ner_service = NERService(doc)
+            buyer_extracted = ner_service.extract_buyer_reconciliation_details(process_entry.buyer_org_data)
+            
+            # buyer_extracted: dict с debit_entries_data и credit_entries_data
+            buyer_debit = {(d['ner_table_idx'], d['ner_row_idx'], d['ner_col_idx']): d for d in buyer_extracted.get('debit_entries_data', [])}
+            buyer_credit = {(d['ner_table_idx'], d['ner_row_idx'], d['ner_col_idx']): d for d in buyer_extracted.get('credit_entries_data', [])}
 
-        for entry, entry_type in all_entries:
-            table_idx = entry.row_id.id_table
-            row_idx = entry.row_id.id_row
-            value = entry.value
-            # Определяем индекс колонки
-            if entry_type == 'debit':
-                # Найти col по buyer_debit
-                key = next((k for k in buyer_debit if k[0] == table_idx and k[1] == row_idx), None)
-                if not key:
+            # Объединяем все записи для заполнения: debit и credit
+            all_entries = [(entry, 'debit') for entry in request.debit] + [(entry, 'credit') for entry in request.credit]
+
+            filled_cells_count = 0
+            
+            for entry, entry_type in all_entries:
+                try:
+                    table_idx = entry.row_id.id_table
+                    row_idx = entry.row_id.id_row
+                    value = entry.value
+                    
+                    # Определяем индекс колонки
+                    if entry_type == 'debit':
+                        # Найти col по buyer_debit
+                        key = next((k for k in buyer_debit if k[0] == table_idx and k[1] == row_idx), None)
+                        if not key:
+                            self.logger.warning(f"(fill_reconciliation_act) Не найдена ячейка debit для таблицы {table_idx}, строки {row_idx}")
+                            continue
+                        col_idx = key[2]
+                        orig_val = buyer_debit[key]['value']
+                    else:
+                        key = next((k for k in buyer_credit if k[0] == table_idx and k[1] == row_idx), None)
+                        if not key:
+                            self.logger.warning(f"(fill_reconciliation_act) Не найдена ячейка credit для таблицы {table_idx}, строки {row_idx}")
+                            continue
+                        col_idx = key[2]
+                        orig_val = buyer_credit[key]['value']
+
+                    # Сравниваем значения
+                    if float(orig_val) == float(value):
+                        continue  # Не заполняем, если значения совпадают
+
+                    # Найти таблицу и ячейку
+                    if table_idx >= len(tables):
+                        self.logger.warning(f"(fill_reconciliation_act) Индекс таблицы {table_idx} превышает количество таблиц {len(tables)}")
+                        continue
+                    
+                    table = tables[table_idx]
+                    cell = next((c for c in table.cells if c.row == row_idx and c.col == col_idx), None)
+                    if not cell:
+                        self.logger.warning(f"(fill_reconciliation_act) Не найдена ячейка таблицы {table_idx}, строка {row_idx}, колонка {col_idx}")
+                        continue
+                    
+                    # Определить страницу
+                    page_num = cell.original_page_num if cell.original_page_num is not None else table.start_page_num
+                    if page_num is None or page_num >= len(render_images):
+                        self.logger.warning(f"(fill_reconciliation_act) Некорректный номер страницы {page_num} для ячейки")
+                        continue
+                    
+                    img = render_images[page_num]
+                    font_size = int(table.average_blob_height) if hasattr(table, 'average_blob_height') else 24
+                    
+                    # преобразуем значение строки в денежный формат 10 000,00
+                    formatted_value = f"{value:,.2f}".replace(',', ' ').replace('.', ',')
+                    
+                    # Вписываем новое значение
+                    render_images[page_num] = draw_text_to_cell(img, cell, formatted_value, font_size=font_size)
+                    filled_cells_count += 1
+                    
+                except Exception as cell_error:
+                    self.logger.error(f"(fill_reconciliation_act) Ошибка при заполнении ячейки {entry_type} таблицы {table_idx}, строки {row_idx}: {cell_error}")
                     continue
-                col_idx = key[2]
-                orig_val = buyer_debit[key]['value']
-            else:
-                key = next((k for k in buyer_credit if k[0] == table_idx and k[1] == row_idx), None)
-                if not key:
-                    continue
-                col_idx = key[2]
-                orig_val = buyer_credit[key]['value']
 
-            # Сравниваем значения
-            if float(orig_val) == float(value):
-                continue  # Не заполняем, если значения совпадают
-
-            # Найти таблицу и ячейку
-            if table_idx >= len(tables):
-                continue
-            table = tables[table_idx]
-            cell = next((c for c in table.cells if c.row == row_idx and c.col == col_idx), None)
-            if not cell:
-                continue
-            # Определить страницу
-            page_num = cell.original_page_num if cell.original_page_num is not None else table.start_page_num
-            if page_num is None or page_num >= len(render_images):
-                continue
-            img = render_images[page_num]
-            font_size = int(table.average_blob_height)
-            # преобразуем значение строки в денежный формат 10 000,00
-            value = f"{value:,.2f}".replace(',', ' ').replace('.', ',')
-            # Вписываем новое значение
-            render_images[page_num] = draw_text_to_cell(img, cell, value, font_size=font_size)
-
-        self.logger.info(f"(_fill_reconciliation_act) Акт сверки успешно заполнен для ID: {process_id}.")
-        filled_pdf_bytes = convert_to_bytes(render_images)
-        return filled_pdf_bytes
+            self.logger.info(f"(fill_reconciliation_act) Заполнено {filled_cells_count} ячеек для ID: {process_id}")
+            
+            # Конвертируем обратно в PDF
+            filled_pdf_bytes = convert_to_bytes(render_images)
+            
+            self.logger.info(f"(fill_reconciliation_act) Акт сверки успешно заполнен для ID: {process_id}")
+            
+            # Успешно завершили - удаляем процесс
+            with self._data_lock:
+                if process_id in self.process_data:
+                    del self.process_data[process_id]
+                    self.logger.info(f"(fill_reconciliation_act) Процесс {process_id} успешно удален после заполнения.")
+            
+            return filled_pdf_bytes
+            
+        except ValueError as ve:
+            # Ошибки валидации (процесс не найден, неправильный статус) - пробрасываем дальше
+            raise ve
+            
+        except Exception as e:
+            # Неожиданные ошибки при заполнении
+            error_msg = f"Ошибка при заполнении акта сверки: {str(e)}"
+            self.logger.exception(f"(fill_reconciliation_act) {error_msg} для ID: {process_id}")
+            
+            # Обновляем статус процесса на ERROR
+            with self._data_lock:
+                process_entry = self.process_data.get(process_id)
+                if process_entry:
+                    process_entry.status_enum = ProcessStatus.ERROR
+                    process_entry.error_message_detail = error_msg
+                    self.logger.info(f"(fill_reconciliation_act) Статус процесса {process_id} изменен на ERROR")
+            
+            raise RuntimeError(error_msg)
 
     def shutdown(self):
         """
