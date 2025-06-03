@@ -6,48 +6,38 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from src.config import config_manager
-from src.main import create_app
 
 def main():
     """Главная функция запуска сервиса"""
     
     # Загружаем конфигурацию
     environment = os.getenv('ENVIRONMENT', 'development')
-    config = config_manager.load_config(environment)
+    from src.config import load_env_file
+    load_env_file(f'.env.{environment}')
+    load_env_file('.env.local')
     
-    print(f"🚀 Запуск ReconService в режиме: {config.environment}")
-    print(f"📡 Сервер: {config.server.host}:{config.server.port}")
-    print(f"👥 Воркеры: {config.processing.max_workers}")
-    print(f"📚 Документация: {config.api.docs_url or 'отключена'}")
+    # Получаем параметры из переменных окружения
+    host = os.getenv('HOST', '127.0.0.1')
+    port = int(os.getenv('PORT', '8000'))
+    workers = int(os.getenv('WORKERS', '1'))
+    reload = os.getenv('RELOAD', 'false').lower() in ('true', '1', 'yes')
+    log_level = os.getenv('LOG_LEVEL', 'info').lower()
     
-
-    os.environ['_RECON_CONFIG_ENVIRONMENT'] = environment
+    print(f"🚀 Запуск ReconService в режиме: {environment}")
+    print(f"📡 Сервер: {host}:{port}")
+    print(f"👥 Воркеры: {workers}")
+    print(f"🔄 Автоперезагрузка: {'да' if reload else 'нет'}")
     
     # Запускаем сервер
     import uvicorn
-    if config.server.reload and config.environment == "development":
-        # Режим разработки с автоперезагрузкой
-        uvicorn.run(
-            "src.main:app",  # Строка импорта вместо объекта
-            host=config.server.host,
-            port=config.server.port,
-            reload=True,
-            log_level="debug",
-            access_log=True
-        )
-    else:
-        # Продакшен режим
-        from src.main import create_app
-        app = create_app(config)
-        
-        uvicorn.run(
-            app,
-            host=config.server.host,
-            port=config.server.port,
-            reload=False,
-            log_level="info" if config.environment == "production" else "debug",
-            access_log=True
+    uvicorn.run(
+        "src.main:app",
+        host=host,
+        port=port,
+        workers=workers if not reload else 1,  # reload не работает с workers > 1
+        reload=reload,
+        log_level=log_level,
+        access_log=True
     )
 
 if __name__ == "__main__":

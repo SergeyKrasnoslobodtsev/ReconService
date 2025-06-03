@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from src.main import app
 from src.service import ProcessStatus 
-from tests.integration.common_test import get_pdf_scan
+from common_test import get_pdf_scan
 
 
 @pytest.fixture(scope="module")

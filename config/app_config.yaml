@@ -30,6 +30,9 @@ storage:
 ocr:
   engine: "tesseract"         # tesseract или easyocr
   language: "rus+eng"
+  tessdata_dir: ""
+  psm: 4                # Page Segmentation Mode (0-13)
+
   
 # Настройки безопасности
 security:

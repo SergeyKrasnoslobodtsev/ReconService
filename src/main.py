@@ -66,11 +66,11 @@ def create_app(config: AppConfig) -> FastAPI:
 # Функция для обратной совместимости
 def get_app():
     """Получает приложение для uvicorn"""
-    from .config import config_manager
+    from .config import load_config
     
     # Пытаемся получить окружение из переменной, установленной start.py
-    environment = os.getenv('_RECON_CONFIG_ENVIRONMENT') or os.getenv('ENVIRONMENT', 'development')
-    config = config_manager.load_config(environment)
+    environment = os.getenv('ENVIRONMENT', 'development')
+    config = load_config(environment)
     return create_app(config)
 
 # Создаем приложение по умолчанию

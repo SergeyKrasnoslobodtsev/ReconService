@@ -10,6 +10,7 @@ __pycache__/
 # Folder
 logs/
 
+
 config/local.yaml
 config/*.local.yaml
 
@@ -127,7 +128,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-.env
+.env*
 .venv
 env/
 venv/
