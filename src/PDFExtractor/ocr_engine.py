@@ -48,7 +48,7 @@ class Engine(ABC):
 
 
         # clean = cv2.bitwise_not(thresh)
-        border = 10
+        border = 5
         gray = cv2.copyMakeBorder(
             gray, border, border, border, border,
             borderType=cv2.BORDER_CONSTANT,
@@ -67,16 +67,19 @@ class TesseractEngine(Engine):
         data = pytesseract.image_to_data(image, config=self.cfg, output_type=pytesseract.Output.DICT)
         
         words = []
+        boxes = []
         # Собираем все распознанные слова
         # Фильтруем пустые строки и строки с низкой уверенностью (conf < 0 это обычно пропуски)
         for i in range(len(data['text'])):
-            if int(data['conf'][i]) > -1 and data['text'][i].strip() != '':
+            if int(data['conf'][i]) > 0 and data['text'][i].strip() != '':
                 words.append(data['text'][i])
+                x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+                boxes.append((x, y, w, h))
         
         # Объединяем все слова в одну строку через пробел
         text = " ".join(words)
 
-        boxes = self.detected_text(image) # Ваш метод для получения bounding boxes блоков
+        #boxes = self.detected_text(image) # Ваш метод для получения bounding boxes блоков
         return (text, boxes)
     
 

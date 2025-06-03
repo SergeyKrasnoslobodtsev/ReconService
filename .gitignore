@@ -7,6 +7,9 @@ __pycache__/
 *.so
 *.pdf
 
+# Folder
+logs/
+
 # Distribution / packaging
 .Python
 build/

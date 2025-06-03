@@ -4,38 +4,51 @@ from enum import Enum
 
 
 class ReconciliationActRequestModel(BaseModel):
+    """Модель запроса для отправки акта сверки на обработку."""
+    document: str
+
+class ReconciliationActResponseModel(BaseModel):
+    '''Модель ответа сервиса после успешной обработки акта сверки'''
     document: str
 
 class ProcessIdResponse(BaseModel):
+    """ Модель ответа для получения идентификатора процесса обработки акта сверки."""
     process_id: str
 
-class ProcessStatusEnum(Enum):
+class ProcessStatus(Enum):
+    """ Перечисление для статусов процесса обработки акта сверки."""
     WAIT = 0
     DONE = 1
     NOT_FOUND = -1
     ERROR = -2
 
 class RowIdModel(BaseModel):
+    """ Модель для идентификатора строки в таблице акта сверки."""
     id_table: int
     id_row: int
 
 class ActEntryModel(BaseModel):
+    """ Модель для записи акта сверки, содержащая информацию о дебете и кредите."""
     row_id: RowIdModel
     record: str
     value: float
     date: Optional[str] = None
 
 class PeriodModel(BaseModel):
+    """ Модель для периода акта сверки, содержащая даты начала и окончания."""
     from_date: str = Field(alias="from")
     to_date: str = Field(alias="to")
 
     model_config = {
-        "populate_by_name": True, # Замена allow_population_by_field_name
-        "from_attributes": True    # Замена orm_mode
+        "populate_by_name": True, 
+        "from_attributes": True   
     }
 
 
 class ReconciliationActResponseModel(BaseModel):
+    """
+    Модель ответа для успешной обработки акта сверки.   
+    """
     process_id: str
     status: int
     message: str
@@ -46,9 +59,16 @@ class ReconciliationActResponseModel(BaseModel):
     credit: List[ActEntryModel]
 
     model_config = {
-        "from_attributes": True    # Замена orm_mode
+        "from_attributes": True   
     }
 
+class FillReconciliationActRequestModel(BaseModel):
+    """
+    Модель запроса для заполнения акта сверки.  
+    """
+    process_id: str
+    debit: List[ActEntryModel]
+    credit: List[ActEntryModel]
 
 
 # Модель для запроса /process_status
@@ -62,7 +82,7 @@ class StatusResponseModel(BaseModel): # Общая модель для стат�
 # Модель для внутреннего представления данных процесса
 class InternalProcessDataModel(BaseModel):
     process_id: str
-    status_enum: ProcessStatusEnum = ProcessStatusEnum.WAIT
+    status_enum: ProcessStatus = ProcessStatus.WAIT
     seller: Optional[str] = None
     buyer: Optional[str] = None
     buyer_org_data: Optional[Dict[str, Any]] = None # Добавлено поле для хранения информации о покупателе

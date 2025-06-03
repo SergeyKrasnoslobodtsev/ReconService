@@ -32,10 +32,10 @@ class NERService:
             return []
         return self.reconciliation_extractor.extract_for_seller(seller_info)
 
-    def extract_buyer_reconciliation_details(self, buyer_info: dict) -> Optional[dict]:
+    def extract_buyer_reconciliation_details(self, buyer_info: dict) -> dict:
         """Извлекает структурную информацию о таблице покупателя для последующего заполнения."""
         if not buyer_info:
             self.logger.warning("Информация о покупателе не предоставлена для определения структуры таблицы.")
-            return None
+            return []
 
         return self.reconciliation_extractor.extract_for_buyer(buyer_info)

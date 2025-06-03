@@ -145,7 +145,6 @@ class ReconciliationActExtractor:
                 tbl.cells, main_hdr_cell.row, main_hdr_cell.col, main_hdr_cell.colspan)
 
             cols_ok = (debit_col != -1 and (main_hdr_cell.colspan < 2 or credit_col != -1))
-            
             if not cols_ok:
                 self.logger.warning(f"Не удалось идентифицировать Д/К колонки в табл. {tbl_idx + 1}.")
                 continue
@@ -203,25 +202,24 @@ class ReconciliationActExtractor:
                         self.logger.warning(f"Не удалось преобразовать значение кредита '{formatted_credit_str}' в число для T{tbl_idx}R{r_idx}. Используется 0.0.")
                 
                 if desc: # Создаем запись только если есть описание
-                    if debit_value > 0.0:
-                        debit_entries_for_service.append({
-                            "ner_table_idx": tbl_idx,
-                            "ner_row_idx": r_idx, 
-                            "record": desc,
-                            "date": date_val_str, 
-                            "value": debit_value # Используем float значение
-                        })
-                        self.logger.info(f"  Т{tbl_idx}R{r_idx}: Оп='{desc}', Дата={date_val_str or 'None'}, Д={debit_value:.2f} (исходн: '{formatted_debit_str}')")
-                    elif credit_value > 0.0:
-                        credit_entries_for_service.append({
-                            "ner_table_idx": tbl_idx, 
-                            "ner_row_idx": r_idx, 
-                            "record": desc,
-                            "date": date_val_str, 
-                            "value": credit_value # Используем float значение
-                        })
-                        self.logger.info(f"  Т{tbl_idx}R{r_idx}: Оп='{desc}', Дата={date_val_str or 'None'}, К={credit_value:.2f} (исходн: '{formatted_credit_str}')")
-        
+
+                    debit_entries_for_service.append({
+                        "ner_table_idx": tbl_idx,
+                        "ner_row_idx": r_idx, 
+                        "record": desc,
+                        "date": date_val_str, 
+                        "value": debit_value 
+                    })
+                    self.logger.info(f"  Т{tbl_idx}R{r_idx}: Оп='{desc}', Дата={date_val_str or 'None'}, Д={debit_value:.2f} (исходн: '{formatted_debit_str}')")
+                    credit_entries_for_service.append({
+                        "ner_table_idx": tbl_idx, 
+                        "ner_row_idx": r_idx, 
+                        "record": desc,
+                        "date": date_val_str, 
+                        "value": credit_value 
+                    })
+                    self.logger.info(f"  Т{tbl_idx}R{r_idx}: Оп='{desc}', Дата={date_val_str or 'None'}, К={credit_value:.2f} (исходн: '{formatted_credit_str}')")
+    
         min_date_str: typing.Optional[str] = None
         max_date_str: typing.Optional[str] = None
         
@@ -241,9 +239,18 @@ class ReconciliationActExtractor:
             "period_to": max_date_str
         }
     
-    def extract_for_buyer(self, buyer_info: dict) -> list[dict]:
-
-        transactions_data = []
+    def extract_for_buyer(self, buyer_info: dict) -> dict:
+        """
+        Извлекает значения дебета и кредита для покупателя по всем таблицам.
+        Возвращает структуру аналогичную extract_for_seller:
+        {
+            "debit_entries_data": [...],
+            "credit_entries_data": [...]
+        }
+        Каждый элемент содержит: индекс таблицы, строки, колонки, описание, дату, значение.
+        """
+        debit_entries_for_service = []
+        credit_entries_for_service = []
         buyer_names = set()
         
         if sr := buyer_info.get('str_repr'):
@@ -281,10 +288,10 @@ class ReconciliationActExtractor:
                     break
             
             if not main_hdr_cell:
-                self.logger.debug(f"Заголовок плкупателя не найден в табл. {tbl_idx + 1}.")
+                self.logger.debug(f"Заголовок покупателя не найден в табл. {tbl_idx + 1}.")
                 continue
             
-            self.logger.debug(f"Найден заголовок плкупателя: '{main_hdr_cell.text}' R{main_hdr_cell.row}C{main_hdr_cell.col}")
+            self.logger.debug(f"Найден заголовок покупателя: '{main_hdr_cell.text}' R{main_hdr_cell.row}C{main_hdr_cell.col}")
 
             debit_col, credit_col = self._find_debit_credit_columns_under_header(
                 tbl.cells, main_hdr_cell.row, main_hdr_cell.col, main_hdr_cell.colspan)
@@ -296,9 +303,63 @@ class ReconciliationActExtractor:
                 continue
             
             self.logger.info(f"Колонки покупателя: Дебет(C{debit_col})" + (f", Кредит(C{credit_col})" if credit_col!=-1 else ""))
-            transactions_data.append({
-                "table" :  tbl_idx,
-                "col_debit": debit_col,
-                "col_credit": credit_col,
-            })
-        return transactions_data
+
+            rows_map: typing.Dict[int, typing.Dict[int, str]] = {}
+            for cell in tbl.cells:
+                if cell.row not in rows_map: 
+                    rows_map[cell.row] = {}
+                rows_map[cell.row][cell.col] = cell.text.strip() if cell.text else ""
+
+            data_start_row = main_hdr_cell.row + 2
+
+            for r_idx in sorted(rows_map.keys()):
+                if r_idx < data_start_row: 
+                    continue
+                row_data = rows_map[r_idx]
+                desc = " ".join(filter(None, (row_data.get(c_idx, "") for c_idx in range(debit_col)))).strip()
+                date_val_str = None  # Можно доработать извлечение даты, если потребуется
+
+                # Дебет
+                raw_debit_text = row_data.get(debit_col, "")
+                formatted_debit_str = format_currency_value(raw_debit_text)
+                debit_value = 0.0
+                if formatted_debit_str and formatted_debit_str != "0,00":
+                    try:
+                        debit_value = float(formatted_debit_str.replace(',', '.').replace(' ', ''))
+                    except ValueError:
+                        self.logger.warning(f"Не удалось преобразовать значение дебета '{formatted_debit_str}' в число для T{tbl_idx}R{r_idx}. Используется 0.0.")
+                
+                debit_entries_for_service.append({
+                    "ner_table_idx": tbl_idx,
+                    "ner_row_idx": r_idx,
+                    "ner_col_idx": debit_col,
+                    "record": desc,
+                    "date": date_val_str,
+                    "value": debit_value
+                })
+                self.logger.info(f"Добавлена запись дебета для T{tbl_idx}R{r_idx}: {debit_value}")
+
+                # Кредит
+                raw_credit_text = row_data.get(credit_col, "") if credit_col != -1 else ""
+                formatted_credit_str = format_currency_value(raw_credit_text)
+                credit_value = 0.0
+                if formatted_credit_str and formatted_credit_str != "0,00":
+                    try:
+                        credit_value = float(formatted_credit_str.replace(',', '.').replace(' ', ''))
+                    except ValueError:
+                        self.logger.warning(f"Не удалось преобразовать значение кредита '{formatted_credit_str}' в число для T{tbl_idx}R{r_idx}. Используется 0.0.")
+                
+                credit_entries_for_service.append({
+                    "ner_table_idx": tbl_idx,
+                    "ner_row_idx": r_idx,
+                    "ner_col_idx": credit_col,
+                    "record": desc,
+                    "date": date_val_str,
+                    "value": credit_value
+                })
+                self.logger.info(f"Добавлена запись кредита для T{tbl_idx}R{r_idx}: {credit_value}")
+
+        return {
+            "debit_entries_data": debit_entries_for_service,
+            "credit_entries_data": credit_entries_for_service
+        }

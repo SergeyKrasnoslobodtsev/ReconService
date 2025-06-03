@@ -3,7 +3,7 @@ import pytest
 
 import common_test
 
-from src.init import ServiceInitialize
+from src.service import ServiceInitialize
 from src.PDFExtractor.scan_extractor import ScanExtractor
 from src.PDFExtractor.native_extractor import NativeExtractor
 from src.PDFExtractor.base_extractor import Page, Table

@@ -95,11 +95,9 @@ class Cell:
 
     @property
     def has_text(self) -> bool:
-        """Проверяет, содержит ли ячейка текст (на основе атрибута text или blobs)."""
-        if self.text and self.text.strip():
-            return True
-        return len(self.blobs) > 0
-    
+        """Проверяет, содержит ли ячейка текст (на основе атрибута text)."""
+        return self.text is not None and self.text.strip() != ""
+
     @property
     def free_space_ratio(self) -> float:
         """
@@ -209,8 +207,8 @@ class Table:
                 all_blobs_heights.append(blob.height)
         
         if not all_blobs_heights:
-            return 0.0
-        return sum(all_blobs_heights) / len(all_blobs_heights)
+            return 12.0
+        return sum(all_blobs_heights) / len(all_blobs_heights) + 6
 
 class ParagraphType(enum.Enum):
     HEADER = 0

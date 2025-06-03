@@ -16,7 +16,7 @@ from .utils import has_line
 
 from .base_extractor import (BBox, 
                              BaseExtractor, 
-                             Cell, 
+                             Cell, Page, 
                              Paragraph, 
                              ParagraphType, 
                              Table)
@@ -35,7 +35,8 @@ class ScanExtractor(BaseExtractor):
         self.logger = logging.getLogger('app.' + __class__.__name__)
 
     def _process(self, page) -> Tuple[List[Paragraph], List[Table]]:
-        
+        self.logger.debug(f'Находим таблицы на странице')
+
         image = page_to_image(page)
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         h_lines, v_lines = find_lines(gray)
@@ -44,7 +45,7 @@ class ScanExtractor(BaseExtractor):
         # Image.fromarray(mask).show()
         # найдем контуры таблиц
         contours = find_max_contours(mask, max=5)
-
+        self.logger.debug(f'Найдено {len(contours)} таблиц на странице')
         # находим абзацы
         paragraphs = self._extract_paragraph_blocks(gray, contours, margin=2)
 
@@ -81,9 +82,9 @@ class ScanExtractor(BaseExtractor):
             )
         # На простых файлах работает, но нужен алгоритм обработки
         cleaned = cv2.medianBlur(gray, 3)
-
+        cleaned = cv2.threshold(cleaned, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
         # посмотри что получилось
-        # Image.fromarray(cleaned).show()
+        Image.fromarray(cleaned).show()
         
         tasks: List[Tuple[Any, np.ndarray]] = []
         for p in paragraphs:
@@ -92,7 +93,7 @@ class ScanExtractor(BaseExtractor):
         for tbl in tables:
             for c in tbl.cells:
                 
-                pad_box = c.bbox.padding(2)
+                pad_box = c.bbox.padding(0)
                 roi = cleaned[pad_box.y1:pad_box.y2, pad_box.x1:pad_box.x2]
                 
                     
@@ -120,10 +121,8 @@ class ScanExtractor(BaseExtractor):
                         roi_origin_x_on_page = obj.bbox.x1
                         roi_origin_y_on_page = obj.bbox.y1
                     elif isinstance(obj, Cell):
-                        # Для ячеек в вашем коде ROI создается с отступом (padding).
-                        # Например, для ячейки (5,1) используется obj.bbox.padding(2).
-                        # Эта логика должна быть последовательной для всех обрабатываемых ячеек.
-                        CELL_ROI_PADDING = 12 # Это значение должно соответствовать созданию ROI для ячеек
+
+                        CELL_ROI_PADDING = 5 
                         padded_bbox_for_cell_roi = obj.bbox.padding(CELL_ROI_PADDING)
                         roi_origin_x_on_page = padded_bbox_for_cell_roi.x1
                         roi_origin_y_on_page = padded_bbox_for_cell_roi.y1
