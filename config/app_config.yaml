@@ -39,5 +39,3 @@ security:
   max_requests_per_minute: 60
   allowed_origins: ["*"]
   
-# Окружение
-environment: "development"    # development, production, testing

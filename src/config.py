@@ -43,7 +43,6 @@ class AppConfig:
     storage: StorageConfig
     ocr: OCRConfig
     security: SecurityConfig
-    environment: str = "development"
 
 def load_env_file(env_file: str):
     """Загружает переменные из .env файла"""
@@ -60,14 +59,9 @@ def load_env_file(env_file: str):
                 if key not in os.environ:
                     os.environ[key] = value
 
-def load_config(environment: Optional[str] = None) -> AppConfig:
+def load_config() -> AppConfig:
     """Загружает конфигурацию"""
-    env = environment or os.getenv('ENVIRONMENT', 'development')
-    
-    # Загружаем .env файл для окружения
-    load_env_file(f'.env.{env}')
-    load_env_file('.env.local')  # Локальные переопределения
-    
+
     # Загружаем настройки приложения из YAML
     config_file = Path('config/app_config.yaml')
     if config_file.exists():

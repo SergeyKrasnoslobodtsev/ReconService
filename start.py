@@ -14,7 +14,6 @@ def main():
     environment = os.getenv('ENVIRONMENT', 'development')
     from src.config import load_env_file
     load_env_file(f'.env.{environment}')
-    load_env_file('.env.local')
     
     # Получаем параметры из переменных окружения
     host = os.getenv('HOST', '127.0.0.1')

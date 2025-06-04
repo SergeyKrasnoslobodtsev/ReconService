@@ -68,9 +68,7 @@ def get_app():
     """Получает приложение для uvicorn"""
     from .config import load_config
     
-    # Пытаемся получить окружение из переменной, установленной start.py
-    environment = os.getenv('ENVIRONMENT', 'development')
-    config = load_config(environment)
+    config = load_config()
     return create_app(config)
 
 # Создаем приложение по умолчанию

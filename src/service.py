@@ -59,8 +59,7 @@ class ReconciliationActService:
         # Используем InternalProcessDataModel из schemas.py
         self.process_data: Dict[str, InternalProcessDataModel] = {} 
         self._data_lock = threading.Lock()
-        self.executor = ThreadPoolExecutor(max_workers=2) 
-        self.logger.info("ReconciliationActService initialized with ThreadPoolExecutor (max_workers=2).")
+        self.executor = ThreadPoolExecutor(max_workers=1) 
 
     def _generate_process_id(self) -> str:
         """
