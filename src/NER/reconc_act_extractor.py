@@ -282,7 +282,9 @@ class ReconciliationActExtractor:
                 if "по данным покупателя" in cell_txt_low: 
                     main_hdr_cell = cell 
                     break
-               
+                if "по данным клиента" in cell_txt_low: 
+                    main_hdr_cell = cell 
+                    break
                 if "по данным" in cell_txt_low and any(v in cell_txt_low for v in sorted_buyer_names):
                     main_hdr_cell = cell
                     break

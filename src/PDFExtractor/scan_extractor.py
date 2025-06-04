@@ -26,6 +26,10 @@ from PIL import Image
 from .ocr_engine import OCR, OcrEngine
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from .adaptive_image_processing import AdaptiveImageProcessing
+
+CELL_ROI_PADDING = -5
+
 # http://ieeexplore.ieee.org/document/9752204
 class ScanExtractor(BaseExtractor):
     '''Извлекает структуру документа если он отсканирован'''
@@ -33,13 +37,15 @@ class ScanExtractor(BaseExtractor):
         self.ocr = OCR(ocr_engine=ocr)
         self.max_workers = max_workers
         self.logger = logging.getLogger('app.' + __class__.__name__)
-
+    
     def _process(self, page) -> Tuple[List[Paragraph], List[Table]]:
         self.logger.debug(f'Находим таблицы на странице')
 
         image = page_to_image(page)
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        h_lines, v_lines = find_lines(gray)
+        # На простых файлах работает, но нужен алгоритм обработки
+        cleaned = AdaptiveImageProcessing().process(gray)
+        h_lines, v_lines = find_lines(cleaned)
 
         mask = h_lines + v_lines
         # Image.fromarray(mask).show()
@@ -47,7 +53,7 @@ class ScanExtractor(BaseExtractor):
         contours = find_max_contours(mask, max=5)
         self.logger.debug(f'Найдено {len(contours)} таблиц на странице')
         # находим абзацы
-        paragraphs = self._extract_paragraph_blocks(gray, contours, margin=2)
+        paragraphs = self._extract_paragraph_blocks(cleaned, contours, margin=2)
 
         tables: List[Table] = []
         for x, y, w, h in contours:
@@ -60,8 +66,8 @@ class ScanExtractor(BaseExtractor):
                 h_lines[y:y+h, x:x+w]
             )
             
-            gray[y:y+h, x:x+w] = remove_lines_by_mask(
-                gray[y:y+h, x:x+w],
+            cleaned[y:y+h, x:x+w] = remove_lines_by_mask(
+                cleaned[y:y+h, x:x+w],
                 mask_roi
             )
             # получаем сетку таблицы (по умолчанию объединим только столбцы)
@@ -80,9 +86,8 @@ class ScanExtractor(BaseExtractor):
                     cells=cells, 
                 )
             )
-        # На простых файлах работает, но нужен алгоритм обработки
-        cleaned = cv2.medianBlur(gray, 3)
-        cleaned = cv2.threshold(cleaned, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+        
+        # cleaned = gray
         # посмотри что получилось
         Image.fromarray(cleaned).show()
         
@@ -93,7 +98,7 @@ class ScanExtractor(BaseExtractor):
         for tbl in tables:
             for c in tbl.cells:
                 
-                pad_box = c.bbox.padding(0)
+                pad_box = c.bbox.padding(CELL_ROI_PADDING)
                 roi = cleaned[pad_box.y1:pad_box.y2, pad_box.x1:pad_box.x2]
                 
                     
@@ -122,8 +127,8 @@ class ScanExtractor(BaseExtractor):
                         roi_origin_y_on_page = obj.bbox.y1
                     elif isinstance(obj, Cell):
 
-                        CELL_ROI_PADDING = 5 
-                        padded_bbox_for_cell_roi = obj.bbox.padding(CELL_ROI_PADDING)
+                        
+                        padded_bbox_for_cell_roi = obj.bbox.padding(CELL_ROI_PADDING + 5)
                         roi_origin_x_on_page = padded_bbox_for_cell_roi.x1
                         roi_origin_y_on_page = padded_bbox_for_cell_roi.y1
                     else:

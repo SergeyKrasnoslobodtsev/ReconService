@@ -35,12 +35,12 @@ class ReconServiceClient:
             print(f"❌ Ошибка отправки PDF: {response.status_code} - {response.text}")
             raise Exception(f"Failed to send PDF: {response.status_code}")
     
-    def wait_for_processing(self, process_id: str, timeout: int = 300) -> Dict[str, Any]:
+    def wait_for_processing(self, process_id: str, timeout: int = 10000) -> Dict[str, Any]:
         """Ждет завершения обработки и возвращает результат"""
         print(f"⏳ Ожидание обработки документа (Process ID: {process_id})")
         
         start_time = time.time()
-        
+        poll_interval = 10
         while time.time() - start_time < timeout:
             response = self.session.post(
                 f"{self.base_url}/process_status",
@@ -56,8 +56,8 @@ class ReconServiceClient:
             
             elif response.status_code == 201:
                 # Документ еще обрабатывается
-                print("⏳ Документ в обработке...")
-                time.sleep(5)
+                print(f"⏳ Документ в обработке... {response.text}")
+                time.sleep(poll_interval)
                 continue
             
             elif response.status_code == 404:

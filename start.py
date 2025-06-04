@@ -35,8 +35,8 @@ def main():
         port=port,
         workers=workers if not reload else 1,  # reload не работает с workers > 1
         reload=reload,
-        log_level=log_level,
-        access_log=True
+        log_level='debug',
+        log_config='./config/logging.yaml',
     )
 
 if __name__ == "__main__":

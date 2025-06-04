@@ -1,5 +1,6 @@
-import os
-from fastapi import FastAPI, HTTPException, status as fastapi_status
+from collections import defaultdict
+import time
+from fastapi import FastAPI, HTTPException, Request, status as fastapi_status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import base64 
@@ -73,6 +74,36 @@ def get_app():
 
 # Создаем приложение по умолчанию
 app = get_app()
+
+
+# request_counts = defaultdict(list)
+# RATE_LIMIT = 10  # запросов
+# RATE_WINDOW = 60  # за 60 секунд
+
+# @app.middleware("http")
+# async def rate_limit_middleware(request: Request, call_next):
+#     client_ip = request.client.host if request.client else "unknown"
+#     current_time = time.time()
+    
+#     # Очищаем старые запросы
+#     request_counts[client_ip] = [
+#         req_time for req_time in request_counts[client_ip] 
+#         if current_time - req_time < RATE_WINDOW
+#     ]
+    
+#     # Проверяем лимит
+#     if len(request_counts[client_ip]) >= RATE_LIMIT:
+#         return JSONResponse(
+#             status_code=429,
+#             content={"detail": "Слишком много запросов. Попробуйте позже."}
+#         )
+    
+#     # Добавляем текущий запрос
+#     request_counts[client_ip].append(current_time)
+#     print(f"Запрос от {client_ip}: {len(request_counts[client_ip])} запросов за последние {RATE_WINDOW} секунд")
+#     response = await call_next(request)
+#     return response
+
 
 # Основные эндпоинты API
 @app.get("/")

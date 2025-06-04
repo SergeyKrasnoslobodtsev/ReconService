@@ -16,9 +16,17 @@ class OrganizationProcessor:
     def __init__(self, logger: logging.Logger):
         self.logger = logger
         self.org_types_full_names_map = {
-            'АО': 'акционерное общество', 'ОАО': 'открытое акционерное общество',
-            'ЗАО': 'закрытое акционерное общество', 'ООО': 'общество с ограниченной ответственностью',
-            'ИП': 'индивидуальный предприниматель', 'ПАО': 'публичное акционерное общество'
+            'АО': 'акционерное общество', 
+            'ОАО': 'открытое акционерное общество',
+            'ЗАО': 'закрытое акционерное общество',
+            'ООО': 'общество с ограниченной ответственностью',
+            'ИП': 'индивидуальный предприниматель', 
+            'ПАО': 'публичное акционерное общество',
+            'ОО': 'общественная организация',
+            'НП': 'некоммерческое партнерство',
+            'ГУП': 'государственное унитарное предприятие',
+            'МУП': 'муниципальное унитарное предприятие',
+            'ФГУП': 'федеральное государственное унитарное предприятие',
         }
         self.pullenti_formal_types = [ft.lower() for ft in self.org_types_full_names_map.values()]
         self.seller_key_words = ['продавец', 'с одной стороны', 'между']
@@ -50,8 +58,7 @@ class OrganizationProcessor:
                         names_to_add_to_ontology.add(prefix_variant)
             if org_full_name_upper == "РУСАЛ": 
                 names_to_add_to_ontology.add("РУСАЛ")
-
-            self.logger.debug(f"Алиасы для онтологии '{org_full_name_upper}': {names_to_add_to_ontology}")
+            
             for name_variant in names_to_add_to_ontology:
                 ontology_item_ref.add_slot(OrganizationReferent.ATTR_NAME, name_variant, False)
             ontology_item_ref.add_slot(OrganizationReferent.ATTR_TYPE, org_type.upper(), False)
@@ -75,16 +82,47 @@ class OrganizationProcessor:
                 is_linked_to_custom_ontology = True
             
             self.logger.debug(f"Pullenti raw: {current_org_ref.type_name}: {current_org_str}")
-            is_primary_legal_entity = False
+            
+            # Добавим детальное логирование для анализа типов
+            org_types = []
             for slot in current_org_ref.slots:
                 if slot.type_name == OrganizationReferent.ATTR_TYPE and isinstance(slot.value, str):
-                    slot_val_low = slot.value.lower()
-                    if slot_val_low in self.pullenti_formal_types or \
-                       self.org_types_full_names_map.get(slot.value.upper(), "").lower() in self.pullenti_formal_types:
-                        is_primary_legal_entity = True 
-                        break
+                    org_types.append(slot.value)
+            
+            self.logger.debug(f"Типы организации '{current_org_str}': {org_types}")
+            
+            is_primary_legal_entity = False
+            # Если организация из нашей онтологии - всегда считаем её валидной
+            if is_linked_to_custom_ontology:
+                is_primary_legal_entity = True
+                self.logger.debug(f"'{current_org_str}' принята (онтология)")
+            else:
+                # Для остальных проверяем тип
+                for slot in current_org_ref.slots:
+                    if slot.type_name == OrganizationReferent.ATTR_TYPE and isinstance(slot.value, str):
+                        slot_val_upper = slot.value.upper()
+                        slot_val_low = slot.value.lower()
+                        
+                        # Прямое сравнение с сокращениями
+                        if slot_val_upper in self.org_types_full_names_map:
+                            is_primary_legal_entity = True
+                            self.logger.debug(f"'{current_org_str}' принята (тип: {slot.value})")
+                            break
+                        # Сравнение с полными названиями
+                        elif slot_val_low in self.pullenti_formal_types:
+                            is_primary_legal_entity = True
+                            self.logger.debug(f"'{current_org_str}' принята (полный тип: {slot.value})")
+                            break
+                        # Дополнительная проверка для расширенного сопоставления
+                        elif self.org_types_full_names_map.get(slot_val_upper, "").lower() in self.pullenti_formal_types:
+                            is_primary_legal_entity = True
+                            self.logger.debug(f"'{current_org_str}' принята (сопоставление: {slot.value})")
+                            break
+            
             if not is_primary_legal_entity: 
+                self.logger.debug(f"'{current_org_str}' отклонена (не соответствует типам)")
                 continue
+                
             if not ent.occurrence:
                 self.logger.warning(f"Org '{str(ent)}' no occurrence.") 
                 continue
@@ -92,7 +130,7 @@ class OrganizationProcessor:
             occ = ent.occurrence[0]
             org_text_from_doc = txt[occ.begin_char:occ.end_char]
             can_names = [s.value.upper() for s in current_org_ref.slots if 
-                         s.type_name == OrganizationReferent.ATTR_NAME and isinstance(s.value, str)]
+                        s.type_name == OrganizationReferent.ATTR_NAME and isinstance(s.value, str)]
             
             if not can_names and current_org_str:
                 base_name = current_org_str.split(',')[0].strip().upper()
@@ -107,6 +145,9 @@ class OrganizationProcessor:
                 "is_linked_to_custom_ontology": is_linked_to_custom_ontology, 
                 "role": None
             })
+            
+            self.logger.debug(f"Добавлена организация: '{current_org_str}' (окно: '{txt[occ.end_char : min(occ.end_char + 30, len(txt))].lower()}')")
+        
         return raw_orgs
 
     def _filter_subsumed_organizations(self, orgs_list: list[dict]) -> list[dict]:
@@ -142,16 +183,38 @@ class OrganizationProcessor:
                 self.logger.debug(f"'{org['str_repr']}' -> 'покупатель' (РУСАЛ logic).")
 
     def _assign_mutual_roles(self, orgs_list: list[dict]) -> None:
-        if len(orgs_list) == 2:
+        # Найти организации с уже назначенными ролями
+        sellers = [org for org in orgs_list if org['role'] == 'продавец']
+        buyers = [org for org in orgs_list if org['role'] == 'покупатель']
+        unassigned = [org for org in orgs_list if org['role'] is None]
+        
+        self.logger.debug(f"Перед взаимным назначением: продавцы={len(sellers)}, покупатели={len(buyers)}, неназначенные={len(unassigned)}")
+        
+        # Если есть покупатель, но нет продавца - назначить неназначенную организацию продавцом
+        if buyers and not sellers and len(unassigned) >= 1:
+            unassigned[0]['role'] = 'продавец'
+            self.logger.debug(f"'{unassigned[0]['str_repr']}' назначена продавцом (mutual logic)")
+        
+        # Если есть продавец, но нет покупателя - назначить неназначенную организацию покупателем  
+        elif sellers and not buyers and len(unassigned) >= 1:
+            unassigned[0]['role'] = 'покупатель'
+            self.logger.debug(f"'{unassigned[0]['str_repr']}' назначена покупателем (mutual logic)")
+        
+        # Исходная логика для случая с 2 организациями
+        elif len(orgs_list) == 2:
             o1, o2 = orgs_list[0], orgs_list[1]
             if o1['role'] == 'покупатель' and o2['role'] is None: 
                 o2['role'] = 'продавец'
+                self.logger.debug(f"'{o2['str_repr']}' назначена продавцом (2 orgs logic)")
             elif o2['role'] == 'покупатель' and o1['role'] is None: 
                 o1['role'] = 'продавец'
+                self.logger.debug(f"'{o1['str_repr']}' назначена продавцом (2 orgs logic)")
             elif o1['role'] == 'продавец' and o2['role'] is None: 
                 o2['role'] = 'покупатель'
+                self.logger.debug(f"'{o2['str_repr']}' назначена покупателем (2 orgs logic)")
             elif o2['role'] == 'продавец' and o1['role'] is None: 
                 o1['role'] = 'покупатель'
+                self.logger.debug(f"'{o1['str_repr']}' назначена покупателем (2 orgs logic)")
 
     def _log_final_organization_roles(self, orgs_list: list[dict]) -> None:
         
@@ -168,7 +231,7 @@ class OrganizationProcessor:
             self.logger.info(log_entry)
 
     def process_text(self, text: str) -> list[dict]:
-        self.logger.debug(f"Поиск организаций в тексте (начало): {text[:200]}...")
+        self.logger.debug(f"Поиск организаций в тексте (начало): {text}...")
         with ProcessorService.create_specific_processor(OrganizationAnalyzer.ANALYZER_NAME) as proc:
             res = proc.process(SourceOfAnalysis(text), self.org_ontos)
         
@@ -184,5 +247,5 @@ class OrganizationProcessor:
         
         self._assign_roles_by_keywords_and_rusal_logic(orgs)
         self._assign_mutual_roles(orgs)
-        self._log_final_organization_roles(orgs)
+
         return orgs

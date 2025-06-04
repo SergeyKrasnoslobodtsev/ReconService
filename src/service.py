@@ -59,7 +59,8 @@ class ReconciliationActService:
         # Используем InternalProcessDataModel из schemas.py
         self.process_data: Dict[str, InternalProcessDataModel] = {} 
         self._data_lock = threading.Lock()
-        self.executor = ThreadPoolExecutor(max_workers=1) 
+        self.executor = ThreadPoolExecutor(max_workers=2) 
+        self.worker_id = os.getpid() 
 
     def _generate_process_id(self) -> str:
         """
@@ -168,14 +169,13 @@ class ReconciliationActService:
             period_from = reconciliation_output.get('period_from')
             period_to = reconciliation_output.get('period_to')
 
-            if not (period_from and period_to):
-                final_error_message_for_update = "Не удалось определить период сверки."
-                self.logger.warning(f"(_process_document) {final_error_message_for_update} для ID: {process_id}")
-                
-
-            # Все проверки пройдены, формируем данные
-            local_period = PeriodModel(from_date=period_from, to_date=period_to)
-            self.logger.info(f"(_process_document) Период акта сверки извлечен: {local_period.model_dump_json(by_alias=True)} для ID: {process_id}")
+            local_period = None
+            if period_from and period_to:
+                local_period = PeriodModel(from_date=period_from, to_date=period_to)
+                self.logger.info(f"(_process_document) Период акта сверки извлечен: {local_period.model_dump_json(by_alias=True)} для ID: {process_id}")
+            else:
+                local_period = PeriodModel(from_date="None", to_date="None")
+                self.logger.info(f"(_process_document) Период сверки не найден для ID: {process_id}")
 
             # Преобразуем данные дебета/кредита
             debit_entries_data = reconciliation_output.get('debit_entries_data', [])
@@ -265,7 +265,7 @@ class ReconciliationActService:
             ).model_dump()
 
         elif process_entry.status_enum == ProcessStatus.DONE:
-            if not all([process_entry.seller, process_entry.buyer, process_entry.period]):
+            if not all([process_entry.seller, process_entry.buyer]):
                  # Если основные данные не извлечены, но статус DONE, возвращаем ошибку или специальный статус
                  self.logger.warning(f"get_process_status: Неполные данные для DONE статуса ID {process_id}. Продавец: {process_entry.seller}, Покупатель: {process_entry.buyer}, Период: {process_entry.period}")
                  # Можно вернуть StatusResponseModel с сообщением о неполных данных
@@ -275,20 +275,15 @@ class ReconciliationActService:
                  ).model_dump()
 
             # Формируем ReconciliationActResponseModel
-            # Агрегируем debit_seller и debit_buyer (пока buyer пуст)
-            # Агрегируем credit_seller и credit_buyer (пока buyer пуст)
-            # В вашей ReconciliationActResponseModel поля debit и credit - это общие списки.
-            # На данном этапе у нас есть только debit_seller и credit_seller.
-            # Если в будущем появятся debit_buyer/credit_buyer, их нужно будет добавить сюда.
             response_data = ReconciliationActResponseModel(
                 process_id=process_entry.process_id,
                 status=ProcessStatus.DONE.value,
                 message="Документ успешно обработан.",
                 seller=process_entry.seller, # Гарантированно не None из-за проверки выше
                 buyer=process_entry.buyer,   # Гарантированно не None
-                period=process_entry.period, # Гарантированно не None
+                period=process_entry.period, # Может быть None
                 debit=process_entry.debit_seller, # Пока только данные продавца
-                credit=process_entry.credit_seller # Пока только данные продавца
+                credit=process_entry.credit_seller # Пока только данные продавца 
             )
             return response_data.model_dump(by_alias=True)
 
@@ -298,7 +293,6 @@ class ReconciliationActService:
             message="Неизвестный статус процесса."
         ).model_dump()
 
-        target_cell = None
     
     def fill_reconciliation_act(self, request: FillReconciliationActRequestModel) -> bytes:
         """
