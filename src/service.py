@@ -5,8 +5,9 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 import yaml
 import uuid
-from typing import List, Optional, Dict, Any # Any убран, если не используется где-то еще
-
+from typing import List, Optional, Dict, Any
+from datetime import datetime, timedelta
+import time
 
 from .PDFExtractor.base_extractor import Document, Table
 from .PDFExtractor.scan_extractor import ScanExtractor
@@ -54,13 +55,54 @@ class ReconciliationActService:
     Предоставляет методы для парсинга, заполнения и получения статуса акта сверки.
     """
     
-    def __init__(self):
+    def __init__(self, process_ttl_hours: int = 1, cleanup_interval_hours: int = 0.5):
         self.logger = logging.getLogger("app." + __name__)
-        # Используем InternalProcessDataModel из schemas.py
+
         self.process_data: Dict[str, InternalProcessDataModel] = {} 
         self._data_lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=2) 
-        self.worker_id = os.getpid() 
+
+        self.process_ttl = timedelta(hours=process_ttl_hours)
+        self.cleanup_interval = timedelta(hours=cleanup_interval_hours)
+
+        self._start_cleanup_task()
+
+    def _start_cleanup_task(self):
+        """Запускает фоновую задачу для периодической очистки старых процессов."""
+        def cleanup_worker():
+            while not getattr(self, '_shutdown_requested', False):
+                try:
+                    time.sleep(self.cleanup_interval.total_seconds())
+                    self._cleanup_old_processes()
+                except Exception as e:
+                    self.logger.error(f"Ошибка в задаче очистки процессов: {e}")
+        
+        cleanup_thread = threading.Thread(target=cleanup_worker, daemon=True, name="ProcessCleanup")
+        cleanup_thread.start()
+        self.logger.info(f"Запущена фоновая задача очистки процессов (интервал: {self.cleanup_interval.total_seconds()}s, TTL: {self.process_ttl.total_seconds()}s)")
+
+    def _cleanup_old_processes(self):
+        """Удаляет процессы старше TTL."""
+        current_time = datetime.now()
+        processes_to_remove = []
+        
+        with self._data_lock:
+            for process_id, process_data in self.process_data.items():
+                # Проверяем время создания процесса
+                if hasattr(process_data, 'created_at'):
+                    if current_time - process_data.created_at > self.process_ttl:
+                        processes_to_remove.append(process_id)
+                else:
+                    # Для старых процессов без created_at - удаляем сразу
+                    processes_to_remove.append(process_id)
+            
+            # Удаляем старые процессы
+            for process_id in processes_to_remove:
+                del self.process_data[process_id]
+                self.logger.info(f"Процесс {process_id} удален по TTL")
+        
+        if processes_to_remove:
+            self.logger.info(f"Очищено {len(processes_to_remove)} старых процессов")
 
     def _generate_process_id(self) -> str:
         """
@@ -68,7 +110,7 @@ class ReconciliationActService:
         """
         return str(uuid.uuid4())
     
-    # document_b64 меняем на pdf_bytes, так как декодирование будет в main.py
+
     def send_reconciliation_act(self, pdf_bytes: bytes) -> str:
         """
         Принимает документ акта сверки в виде байтов и инициирует его асинхронную обработку.
@@ -386,7 +428,6 @@ class ReconciliationActService:
                     img = render_images[page_num]
                     font_size = int(table.average_blob_height) if hasattr(table, 'average_blob_height') else 24
                     
-                    # преобразуем значение строки в денежный формат 10 000,00
                     formatted_value = f"{value:,.2f}".replace(',', ' ').replace('.', ',')
                     
                     # Вписываем новое значение
@@ -403,18 +444,9 @@ class ReconciliationActService:
             filled_pdf_bytes = convert_to_bytes(render_images)
             
             self.logger.info(f"(fill_reconciliation_act) Акт сверки успешно заполнен для ID: {process_id}")
-            
-            # Успешно завершили - удаляем процесс
-            with self._data_lock:
-                if process_id in self.process_data:
-                    del self.process_data[process_id]
-                    self.logger.info(f"(fill_reconciliation_act) Процесс {process_id} успешно удален после заполнения.")
+
             
             return filled_pdf_bytes
-            
-        except ValueError as ve:
-            # Ошибки валидации (процесс не найден, неправильный статус) - пробрасываем дальше
-            raise ve
             
         except Exception as e:
             # Неожиданные ошибки при заполнении

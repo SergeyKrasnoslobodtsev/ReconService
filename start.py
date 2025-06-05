@@ -33,10 +33,9 @@ def main():
         "src.main:app",
         host=host,
         port=port,
-        workers=workers if not reload else 1,  # reload не работает с workers > 1
+        workers=workers if not reload else 1,
         reload=reload,
-        log_level='debug',
-        log_config='./config/logging.yaml',
+        log_level=log_level
     )
 
 if __name__ == "__main__":

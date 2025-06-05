@@ -16,7 +16,6 @@ from src.NER.utils import (
     parse_pullenti_date_range_referent,
     extract_dates_via_pullenti,
     select_best_date_candidate,
-    _normalize_currency_string,
     format_currency_value
 )
 
@@ -195,19 +194,45 @@ class TestSelectBestDateCandidate:
         assert select_best_date_candidate(dates, None) is None
 
 
-class TestNormalizeCurrencyString:
+class TestFormatCurrencyValue:
     @pytest.mark.parametrize("input_str, expected_str", [
-        ("12345.67", "12345.67"),
-        ("12 345,67", "12345.67"),
-        ("1.234.567,89", "1234567.89"), 
-        ("1,234,567.89", "1234567.89"), 
-        ("100", "100"),
-        ("  100.5  ", "100.5"),
-        ("-50.25", "-50.25"),
-        ("0.00", "0.00"),
+        # Основные случаи
+        ("123456789", "1234567,89"),
+        ("12345", "123,45"),
+        ("123", "1,23"),
+        ("12", "0,12"),
+        ("1", "0,01"),
+        
+        # С различными разделителями и символами
+        ("1.234.567,89", "1234567,89"),
+        ("1,234,567.89", "1234567,89"),
+        ("1 234 567,89", "1234567,89"),
+        ("1.234.567,89руб.", "1234567,89"),
+        ("1,234,567.89..", "1234567,89"),  # Ваш проблемный случай
+        
+        # С символами валюты и специальными символами
+        ("$12345", "123,45"),
+        ("€12345", "123,45"),
+        ("¥12345", "123,45"),
+        ("12345 руб.", "123,45"),
+        (";12345/[<]", "123,45"),
+        ("|;12345|", "123,45"),
+
+
+        # Отрицательные числа (знак минус игнорируется)
+        ("-12345", "123,45"),
+        
+        # Граничные случаи
+        ("0", "0,00"),
+        ("00", "0,00"),
+        ("000", "0,00"),
+        ("100", "1,00"),
+        ("1000", "10,00"),
+        ("10000", "100,00"),
+        
     ])
     def test_valid_normalizations(self, input_str, expected_str):
-        assert _normalize_currency_string(input_str) == expected_str
+        assert format_currency_value(input_str) == expected_str
 
     @pytest.mark.parametrize("input_str", [
         "abc",
@@ -219,36 +244,9 @@ class TestNormalizeCurrencyString:
         ",",
     ])
     def test_invalid_strings(self, input_str):
-        assert _normalize_currency_string(input_str) is None
+        assert format_currency_value(input_str) is None
 
 
-class TestFormatCurrencyValue:
-    @pytest.mark.parametrize("input_str, expected_output", [
-        ("12345.67", "12345,67"),
-        ("12 345,67", "12345,67"),
-        ("1.234.567,89", "1234567,89"),
-        ("100", "100,00"),
-        ("100.5", "100,50"),
-        ("100.50", "100,50"),
-        ("-75.99", "-75,99"),
-        ("-75", "-75,00"),
-        ("0.00", "0,00"),
-        ("0", "0,00"),
-        ("123.456", "123.456"),
-        ("123..45", "123..45"), 
-    ])
-    def test_formatting(self, input_str, expected_output):
-        assert format_currency_value(input_str) == expected_output
-
-    @pytest.mark.parametrize("input_str", [
-        "abc",
-        "123a.45",
-        "",
-        "   ",
-        "только текст",
-    ])
-    def test_invalid_input_returns_original(self, input_str):
-        assert format_currency_value(input_str) == input_str
 
 class TestExtractDatesViaPullenti:
     @patch('src.NER.utils.parse_pullenti_date_range_referent')

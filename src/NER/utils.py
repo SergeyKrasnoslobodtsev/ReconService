@@ -195,88 +195,92 @@ def get_quarter_end_date(year: int, quarter: int) -> typing.Optional[datetime.da
         return datetime.date(year, 12, 31)
     return None
 
-def _normalize_currency_string(value: str) -> typing.Optional[str]:
-    """Предварительно обрабатывает и нормализует строку для парсинга валюты."""
-    text_to_process = value.strip()
-    if not text_to_process:
-        return None
+# def _normalize_currency_string(value: str) -> typing.Optional[str]:
+#     """Предварительно обрабатывает и нормализует строку для парсинга валюты."""
+#     text_to_process = value.strip()
+#     if not text_to_process:
+#         return None
     
-    if not any(char.isdigit() for char in text_to_process):
-        return None 
+#     if not any(char.isdigit() for char in text_to_process):
+#         return None 
     
-    if any(char.isalpha() for char in text_to_process):
-        return None
+#     if any(char.isalpha() for char in text_to_process):
+#         return None
 
-    s = text_to_process.replace(" ", "")
-    s = s.replace(',', '.')
+#     s = text_to_process.replace(" ", "")
+#     s = s.replace(',', '.')
 
-    if not s: 
-        return None
+#     if not s: 
+#         return None
 
-    # *** Условие для "двух точек" ***
-    # Если после замены запятых на точки в строке есть ".." (две точки подряд),
-    # считаем это невалидным форматом для дальнейшей нормализации.
-    # _normalize_currency_string вернет None, и format_currency_value вернет исходную строку.
-    if ".." in s:
-        return None 
+#     # *** Условие для "двух точек" ***
+#     # Если после замены запятых на точки в строке есть ".." (две точки подряд),
+#     # считаем это невалидным форматом для дальнейшей нормализации.
+#     # _normalize_currency_string вернет None, и format_currency_value вернет исходную строку.
+#     if ".." in s:
+#         return None 
     
-    # Обработка нескольких точек, которые НЕ идут подряд (например, разделители тысяч "1.234.56")
-    if s.count('.') > 1:
-        parts = s.split('.')
-        integer_part_str = "".join(parts[:-1])
-        decimal_part_str = parts[-1]
+#     # Обработка нескольких точек, которые НЕ идут подряд (например, разделители тысяч "1.234.56")
+#     if s.count('.') > 1:
+#         parts = s.split('.')
+#         integer_part_str = "".join(parts[:-1])
+#         decimal_part_str = parts[-1]
         
-        # Простая валидация для частей (можно усложнить при необходимости)
-        is_valid_integer_part = (
-            not integer_part_str or 
-            integer_part_str == '-' or 
-            (integer_part_str.startswith('-') and integer_part_str[1:].isdigit()) or
-            integer_part_str.isdigit()
-        )
-        is_valid_decimal_part = (not decimal_part_str or decimal_part_str.isdigit())
+#         # Простая валидация для частей (можно усложнить при необходимости)
+#         is_valid_integer_part = (
+#             not integer_part_str or 
+#             integer_part_str == '-' or 
+#             (integer_part_str.startswith('-') and integer_part_str[1:].isdigit()) or
+#             integer_part_str.isdigit()
+#         )
+#         is_valid_decimal_part = (not decimal_part_str or decimal_part_str.isdigit())
 
-        if not (is_valid_integer_part and is_valid_decimal_part):
-            return None 
+#         if not (is_valid_integer_part and is_valid_decimal_part):
+#             return None 
         
-        if integer_part_str == "-" and not decimal_part_str: # Избегаем просто "-"
-            return None
+#         if integer_part_str == "-" and not decimal_part_str: # Избегаем просто "-"
+#             return None
 
-        s = f"{integer_part_str}.{decimal_part_str}"
-        if s == ".": # Если исходная строка была, например, " . . "
-            return None
+#         s = f"{integer_part_str}.{decimal_part_str}"
+#         if s == ".": # Если исходная строка была, например, " . . "
+#             return None
     
-    # Пост-обработка для одиночной точки или нормализованных нескольких точек
-    if not s or s == "-": 
-        return None
+#     # Пост-обработка для одиночной точки или нормализованных нескольких точек
+#     if not s or s == "-": 
+#         return None
 
         
-    return s
+#     return s
 
 def format_currency_value(value: str) -> str:
-    """Форматирует строку, представляющую денежное значение, к виду 'ЧИСЛО,ДД'."""
-    original_value_to_return = value 
-
-    normalized_s = _normalize_currency_string(value)
+    """
+    Форматирует строку к виду 'ЧИСЛО,ДД', извлекая только цифры.
+    Последние 2 цифры становятся копейками, остальные - рублями.
     
-    if normalized_s is None:
-        return original_value_to_return
-
-    # Паттерн для целого числа с опциональной дробной частью (1 или 2 знака)
-    # Позволяет отрицательные числа
-    match = re.fullmatch(r"(-?\d+)(\.(\d{1,2}))?", normalized_s)
-
-    if match:
-        integer_part = match.group(1)
-        # group(2) это точка с дробной частью, group(3) это сама дробная часть
-        decimal_digits_str = match.group(3) 
-
-        if decimal_digits_str:
-            # Дополняем нулем, если только одна цифра после точки (например, 123.5 -> 123,50)
-            formatted_decimal = f"{decimal_digits_str}0" if len(decimal_digits_str) == 1 else decimal_digits_str
-            return f"{integer_part},{formatted_decimal}"
-        else:
-            # Если дробной части нет, добавляем ",00"
-            return f"{integer_part},00"
-    else:
-        # Если строка не соответствует ожидаемому формату после нормализации
-        return original_value_to_return
+    Примеры:
+    "123456789" -> "1234567,89"
+    "1.234.567,89руб." -> "1234567,89"
+    "12345" -> "123,45"
+    "123" -> "1,23"
+    "12" -> "0,12"
+    "1" -> "0,01"
+    """
+    # Извлекаем только цифры
+    digits = re.sub(r'\D', '', value)
+    
+    # Если цифр нет - возвращаем исходную строку
+    if not digits:
+        return value
+    
+    # Дополняем нулями слева до минимум 3 символов (чтобы было что-то до запятой)
+    if len(digits) < 3:
+        digits = digits.zfill(3)
+    
+    # Разделяем на рубли и копейки (последние 2 цифры)
+    rubles = digits[:-2]
+    kopecks = digits[-2:]
+    
+    # Убираем ведущие нули из рублей (но оставляем хотя бы один ноль)
+    rubles = rubles.lstrip('0') or '0'
+    
+    return f"{rubles},{kopecks}"

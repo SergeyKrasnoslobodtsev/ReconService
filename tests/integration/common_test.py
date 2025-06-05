@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import List, Tuple
 from PIL import Image
@@ -5,6 +6,7 @@ from PIL.ImageDraw import ImageDraw
 from PIL import ImageFont
 import pymupdf
 from pdf2image import convert_from_path
+
 
 # ---- настройка имён -----------------------------------------------------------
 SCAN_PDF_NAME = "scan_v1.pdf"          # ожидаем True (скан)

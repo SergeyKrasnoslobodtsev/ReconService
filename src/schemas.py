@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from enum import Enum
+from datetime import datetime
 
 
 class ReconciliationActRequestModel(BaseModel):
@@ -32,12 +33,12 @@ class ActEntryModel(BaseModel):
     row_id: RowIdModel
     record: str
     value: float
-    date: Optional[str] = None
+    date: str | None
 
 class PeriodModel(BaseModel):
     """ Модель для периода акта сверки, содержащая даты начала и окончания."""
-    from_date: str = Field(alias="from")
-    to_date: str = Field(alias="to")
+    from_date: str | None = Field(alias="from")
+    to_date: str | None = Field(alias="to")
 
     model_config = {
         "populate_by_name": True, 
@@ -82,6 +83,7 @@ class StatusResponseModel(BaseModel): # Общая модель для стат�
 # Модель для внутреннего представления данных процесса
 class InternalProcessDataModel(BaseModel):
     process_id: str
+    created_at: datetime = Field(default_factory=datetime.now)
     status_enum: ProcessStatus = ProcessStatus.WAIT
     seller: Optional[str] = None
     buyer: Optional[str] = None
