@@ -89,7 +89,7 @@ def parse_pullenti_date_range_referent(
         if year_for_quarter_pullenti and year_for_quarter_pullenti > 0:
             quarter_end_dt_pullenti = get_quarter_end_date(year_for_quarter_pullenti, quarter_num_pullenti)
             if quarter_end_dt_pullenti:
-                print(f"Pullenti обнаружил квартал Q{quarter_num_pullenti} для года {year_for_quarter_pullenti}, дата конца: {quarter_end_dt_pullenti}")
+                #print(f"Pullenti обнаружил квартал Q{quarter_num_pullenti} для года {year_for_quarter_pullenti}, дата конца: {quarter_end_dt_pullenti}")
                 return {
                     'day': quarter_end_dt_pullenti.day, 
                     'month': quarter_end_dt_pullenti.month, 
@@ -112,9 +112,9 @@ def extract_dates_via_pullenti(txt: str, context_year: typing.Optional[int]) -> 
             analysis_result = proc.process(SourceOfAnalysis(txt))
             entities: typing.List[Referent] = analysis_result.entities
             
-            print(f"Анализ текста '{txt}' дал {len(entities)} сущностей Pullenti.")
+            #print(f"Анализ текста '{txt}' дал {len(entities)} сущностей Pullenti.")
             for i, entity in enumerate(entities):
-                print(f"  Сущность {i}: {type(entity).__name__} - '{str(entity)}'")
+                #print(f"  Сущность {i}: {type(entity).__name__} - '{str(entity)}'")
                 parsed_date_info = None
                 if isinstance(entity, DateRangeReferent):
                     parsed_date_info = parse_pullenti_date_range_referent(entity, context_year)
@@ -151,7 +151,7 @@ def select_best_date_candidate(
         for pd_info in potential_dates:
             if pd_info['type'] == date_type and pd_info.get('year') is not None: # Убедимся, что год есть для основных типов
                 best_date_components = pd_info
-                print(f"Выбран кандидат по типу '{date_type}': {best_date_components}")
+                #print(f"Выбран кандидат по типу '{date_type}': {best_date_components}")
                 return best_date_components # Возвращаем первый лучший найденный
 
     # Если не нашли с годом, и есть контекстный год, ищем даты без года
@@ -166,7 +166,7 @@ def select_best_date_candidate(
                         'year': context_year, 
                         'type': pd_info['type'].replace('_pullenti', '_context_applied') # Обновляем тип
                     }
-                    print(f"Применен контекстный год {context_year} к кандидату типа '{pd_info['type']}': {best_date_components}")
+                    #print(f"Применен контекстный год {context_year} к кандидату типа '{pd_info['type']}': {best_date_components}")
                     return best_date_components # Возвращаем первый лучший найденный с контекстом
     
     if best_date_components: # Если что-то выбрали на предыдущих шагах
@@ -176,7 +176,7 @@ def select_best_date_candidate(
     # (например, если в _DATE_TYPE_PREFERENCE_ORDER были типы, где год мог быть None, но это не наш случай сейчас)
     # Можно добавить еще один проход по всем potential_dates, если нужна менее строгая логика.
     # В текущей логике, если ничего не выбрано, вернется None.
-    print(f"Не удалось выбрать приоритетного кандидата из: {potential_dates} с контекстным годом {context_year}")
+    #print(f"Не удалось выбрать приоритетного кандидата из: {potential_dates} с контекстным годом {context_year}")
     return None
 
 

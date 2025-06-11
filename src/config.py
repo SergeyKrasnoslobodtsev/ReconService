@@ -26,23 +26,12 @@ class OCRConfig:
     max_workers: int = 4
     dpi_image: int = 300
 
-@dataclass
-class LoggingConfig:
-    """Конфигурация логирования"""
-    level: str = "INFO"
-    enable_file_logging: bool = True
-    log_dir: str = "logs"
-    config_file: str = "./config/logging.yaml"
-    
-    # Для production можно отключить файловое логирование
-    console_only: bool = False
 
 @dataclass
 class AppConfig:
     api: APIConfig
     service: ServiceConfig
     ocr: OCRConfig
-    logging: LoggingConfig = field(default_factory=LoggingConfig)
 
 def load_env_file(env_file: str):
     """Загружает переменные из .env файла"""
@@ -90,17 +79,9 @@ def load_config(config_path: str = "./config/config.yaml") -> AppConfig:
         dpi_image=int(os.getenv("OCR_DPI_IMAGE", config_data.get("ocr", {}).get("dpi_image", 300)))
     )
 
-    logging_config = LoggingConfig(
-        level=os.getenv("LOG_LEVEL", config_data.get("logging", {}).get("level", "INFO")).upper(),
-        enable_file_logging=os.getenv("ENABLE_FILE_LOGGING", str(config_data.get("logging", {}).get("enable_file_logging", True))).lower() in ('true', '1', 'yes'),
-        log_dir=os.getenv("LOG_DIR", config_data.get("logging", {}).get("log_dir", "logs")),
-        config_file=os.getenv("LOGGING_CONFIG_FILE", config_data.get("logging", {}).get("config_file", "./config/logging.yaml")),
-        console_only=os.getenv("CONSOLE_ONLY_LOGGING", str(config_data.get("logging", {}).get("console_only", False))).lower() in ('true', '1', 'yes')
-    )
     
     return AppConfig(
         api=api_config,
         service=service_config,
-        ocr=ocr_config, 
-        logging=logging_config
+        ocr=ocr_config
     )

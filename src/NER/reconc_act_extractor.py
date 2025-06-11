@@ -14,9 +14,9 @@ class ReconciliationActExtractor:
     """
     Извлекает данные из таблиц актов сверки.
     """
-    def __init__(self, doc: Document, logger: logging.Logger):
+    def __init__(self, doc: Document):
         self.doc = doc
-        self.logger = logger
+        self.logger = logging.getLogger("app." + __class__.__name__)
 
     def _extract_date_from_text(self, txt: str, context_year: typing.Optional[int] = None) -> typing.Optional[dict]:
         """

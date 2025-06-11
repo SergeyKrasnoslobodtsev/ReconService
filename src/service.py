@@ -9,7 +9,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import time
 
-from .config import AppConfig, LoggingConfig
+from .config import AppConfig
 
 from .PDFExtractor.base_extractor import Document, Table
 from .PDFExtractor.scan_extractor import ScanExtractor
@@ -32,58 +32,13 @@ from .pdf_renderer import convert_to_bytes
 from .pdf_renderer import convert_to_pil
 from .pdf_renderer import draw_text_to_cell
 
-def logger_configure(config: LoggingConfig):
-    """Настраивает логирование на основе конфигурации"""
-    
-    # Если только консоль (например, для production с NSSM)
-    if config.console_only:
-        logging.basicConfig(
-            level=getattr(logging, config.level),
-            format="[%(asctime)s] [%(levelname)s] [%(name)s:%(lineno)d] - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
-        )
-        return
-    
-    # Если файловое логирование отключено
-    if not config.enable_file_logging:
-        logging.basicConfig(
-            level=getattr(logging, config.level),
-            format="[%(asctime)s] [%(levelname)s] [%(name)s:%(lineno)d] - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
-        )
-        return
-    
-    # Полная конфигурация из YAML файла
-    if os.path.exists(config.config_file):
-        with open(config.config_file, "rt", encoding="utf-8") as f:
-            log_config = yaml.safe_load(f)
-
-        # Создаем директорию для логов
-        os.makedirs(config.log_dir, exist_ok=True)
-        
-        # Обновляем пути в конфигурации
-        for handler in log_config.get("handlers", {}).values():
-            filename = handler.get("filename")
-            if filename:
-                # Заменяем путь на настроенный из конфига
-                handler["filename"] = os.path.join(config.log_dir, os.path.basename(filename))
-
-        logging.config.dictConfig(log_config)
-    else:
-        # Fallback к базовой конфигурации
-        logging.basicConfig(
-            level=getattr(logging, config.level),
-            format="[%(asctime)s] [%(levelname)s] [%(name)s:%(lineno)d] - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
-        )
 
 def InitializationPullenti():
     Sdk.initialize_all()
 class ServiceInitialize:
     @staticmethod
-    def initialize(config: AppConfig) -> None:
+    def initialize() -> None:
         """Инициализация сервиса с единой конфигурацией"""
-        logger_configure(config.logging)
         InitializationPullenti()
 class ReconciliationActService:
     """
@@ -160,8 +115,7 @@ class ReconciliationActService:
         """
         process_id = self._generate_process_id()
         
-        # Используем InternalProcessDataModel
-        # document_structure будет заполнен в _process_document
+
         new_entry = InternalProcessDataModel(
             process_id=process_id,
             status_enum=ProcessStatus.WAIT 
@@ -212,12 +166,12 @@ class ReconciliationActService:
         processed_document_structure: Optional[Document] = None
 
         try:
-            self.logger.info(f"(_process_document) Начало обработки PDF для ID: {process_id}")
+            self.logger.info(f"Начало обработки PDF для ID: {process_id}")
             
             # Извлекаем структуру документа
             extractor = ScanExtractor() 
             processed_document_structure = extractor.extract(pdf_bytes)
-            self.logger.info(f"(_process_document) Структура документа извлечена для ID: {process_id}")
+            self.logger.info(f"Структура документа извлечена для ID: {process_id}")
 
             # Инициализируем NER сервис и извлекаем организации
             ner_service = NERService(processed_document_structure) 
@@ -226,22 +180,22 @@ class ReconciliationActService:
             # Проверяем наличие продавца
             if not ner_service.get_seller_info:
                 final_error_message_for_update = "Информация о продавце не найдена в документе."
-                self.logger.error(f"(_process_document) {final_error_message_for_update} для ID: {process_id}")
+                self.logger.error(f"{final_error_message_for_update} для ID: {process_id}")
                 return
             
             # Проверяем наличие покупателя
             if not ner_service.get_buyer_info:
                 final_error_message_for_update = "Информация о покупателе не найдена в документе."
-                self.logger.error(f"(_process_document) {final_error_message_for_update} для ID: {process_id}")
+                self.logger.error(f"{final_error_message_for_update} для ID: {process_id}")
                 return
-                
-            self.logger.info(f"(_process_document) Продавец: {ner_service.get_seller_name}, Покупатель: {ner_service.get_buyer_name} для ID: {process_id}")
+
+            self.logger.info(f"Продавец: {ner_service.get_seller_name}, Покупатель: {ner_service.get_buyer_name} для ID: {process_id}")
 
             # Извлекаем детали сверки продавца
             reconciliation_output = ner_service.extract_seller_reconciliation_details(ner_service.get_seller_info)
             if not reconciliation_output:
                 final_error_message_for_update = "NERService не вернул деталей сверки для продавца."
-                self.logger.error(f"(_process_document) {final_error_message_for_update} для ID: {process_id}")
+                self.logger.error(f"{final_error_message_for_update} для ID: {process_id}")
                 return
 
             # Проверяем период сверки
@@ -251,10 +205,10 @@ class ReconciliationActService:
             local_period = None
             if period_from and period_to:
                 local_period = PeriodModel(from_date=period_from, to_date=period_to)
-                self.logger.info(f"(_process_document) Период акта сверки извлечен: {local_period.model_dump_json(by_alias=True)} для ID: {process_id}")
+                self.logger.info(f"Период акта сверки извлечен: {local_period.model_dump_json(by_alias=True)} для ID: {process_id}")
             else:
                 local_period = PeriodModel(from_date="None", to_date="None")
-                self.logger.info(f"(_process_document) Период сверки не найден для ID: {process_id}")
+                self.logger.info(f"Период сверки не найден для ID: {process_id}")
 
             # Преобразуем данные дебета/кредита
             debit_entries_data = reconciliation_output.get('debit_entries_data', [])
@@ -265,22 +219,22 @@ class ReconciliationActService:
 
             if not local_debit_seller:
                 final_error_message_for_update = "Не удалось извлечь данные дебета продавца."
-                self.logger.error(f"(_process_document) {final_error_message_for_update} для ID: {process_id}")
+                self.logger.error(f"{final_error_message_for_update} для ID: {process_id}")
                 return
             
             if not local_credit_seller:
                 final_error_message_for_update = "Не удалось извлечь данные кредита продавца."
-                self.logger.error(f"(_process_document) {final_error_message_for_update} для ID: {process_id}")
+                self.logger.error(f"{final_error_message_for_update} для ID: {process_id}")
                 return
 
-            self.logger.info(f"(_process_document) Данные по дебету/кредиту {len(local_debit_seller)} продавца извлечены для ID: {process_id}")
+            self.logger.info(f"Данные по дебету/кредиту {len(local_debit_seller)} продавца извлечены для ID: {process_id}")
 
             # Все данные успешно извлечены
             final_status_for_update = ProcessStatus.DONE
             final_error_message_for_update = None
 
         except Exception as e:
-            self.logger.exception(f"(_process_document) Ошибка при обработке документа для ID {process_id}: {e}")
+            self.logger.exception(f"Ошибка при обработке документа для ID {process_id}: {e}")
             final_error_message_for_update = f"Ошибка обработки документа: {str(e)}"
         
         finally:
@@ -311,7 +265,7 @@ class ReconciliationActService:
         with self._data_lock:
             entry_to_update = self.process_data.get(process_id)
             if not entry_to_update:
-                self.logger.error(f"(_update_process_entry) Запись о процессе с ID {process_id} не найдена для обновления статуса.")
+                self.logger.error(f"Запись о процессе с ID {process_id} не найдена для обновления статуса.")
                 return
 
             entry_to_update.status_enum = status
@@ -326,7 +280,7 @@ class ReconciliationActService:
                 entry_to_update.debit_seller = debit_seller or []
                 entry_to_update.credit_seller = credit_seller or []
             
-            self.logger.info(f"(_update_process_entry) Завершение обработки для ID: {process_id}. Статус: {status.name}")
+            self.logger.info(f"Завершение обработки для ID: {process_id}. Статус: {status.name}")
 
     def get_process_status(self, process_id: str) -> Dict[str, Any]:
         """
@@ -399,15 +353,15 @@ class ReconciliationActService:
             
             if not process_entry:
                 error_msg = f"Процесс с ID {process_id} не найден."
-                self.logger.error(f"(fill_reconciliation_act) {error_msg}")
+                self.logger.error(f"{error_msg}")
                 raise ValueError(error_msg)
             
             if process_entry.status_enum != ProcessStatus.DONE:
                 error_msg = f"Невозможно заполнить акт сверки для процесса с ID {process_id}, статус: {process_entry.status_enum.name}."
-                self.logger.error(f"(fill_reconciliation_act) {error_msg}")
+                self.logger.error(f"{error_msg}")
                 raise ValueError(error_msg)
 
-            self.logger.info(f"(fill_reconciliation_act) Начало заполнения акта сверки для ID: {process_id}")
+            self.logger.info(f"Начало заполнения акта сверки для ID: {process_id}")
 
             doc: Document = process_entry.document_structure
 
@@ -440,14 +394,14 @@ class ReconciliationActService:
                         # Найти col по buyer_debit
                         key = next((k for k in buyer_debit if k[0] == table_idx and k[1] == row_idx), None)
                         if not key:
-                            self.logger.warning(f"(fill_reconciliation_act) Не найдена ячейка debit для таблицы {table_idx}, строки {row_idx}")
+                            self.logger.warning(f"Не найдена ячейка debit для таблицы {table_idx}, строки {row_idx}")
                             continue
                         col_idx = key[2]
                         orig_val = buyer_debit[key]['value']
                     else:
                         key = next((k for k in buyer_credit if k[0] == table_idx and k[1] == row_idx), None)
                         if not key:
-                            self.logger.warning(f"(fill_reconciliation_act) Не найдена ячейка credit для таблицы {table_idx}, строки {row_idx}")
+                            self.logger.warning(f"Не найдена ячейка credit для таблицы {table_idx}, строки {row_idx}")
                             continue
                         col_idx = key[2]
                         orig_val = buyer_credit[key]['value']
@@ -458,19 +412,19 @@ class ReconciliationActService:
 
                     # Найти таблицу и ячейку
                     if table_idx >= len(tables):
-                        self.logger.warning(f"(fill_reconciliation_act) Индекс таблицы {table_idx} превышает количество таблиц {len(tables)}")
+                        self.logger.warning(f"Индекс таблицы {table_idx} превышает количество таблиц {len(tables)}")
                         continue
                     
                     table = tables[table_idx]
                     cell = next((c for c in table.cells if c.row == row_idx and c.col == col_idx), None)
                     if not cell:
-                        self.logger.warning(f"(fill_reconciliation_act) Не найдена ячейка таблицы {table_idx}, строка {row_idx}, колонка {col_idx}")
+                        self.logger.warning(f"Не найдена ячейка таблицы {table_idx}, строка {row_idx}, колонка {col_idx}")
                         continue
                     
                     # Определить страницу
                     page_num = cell.original_page_num if cell.original_page_num is not None else table.start_page_num
                     if page_num is None or page_num >= len(render_images):
-                        self.logger.warning(f"(fill_reconciliation_act) Некорректный номер страницы {page_num} для ячейки")
+                        self.logger.warning(f"Некорректный номер страницы {page_num} для ячейки")
                         continue
                     
                     img = render_images[page_num]
@@ -483,15 +437,15 @@ class ReconciliationActService:
                     filled_cells_count += 1
                     
                 except Exception as cell_error:
-                    self.logger.error(f"(fill_reconciliation_act) Ошибка при заполнении ячейки {entry_type} таблицы {table_idx}, строки {row_idx}: {cell_error}")
+                    self.logger.error(f"Ошибка при заполнении ячейки {entry_type} таблицы {table_idx}, строки {row_idx}: {cell_error}")
                     continue
 
-            self.logger.info(f"(fill_reconciliation_act) Заполнено {filled_cells_count} ячеек для ID: {process_id}")
+            self.logger.info(f"Заполнено {filled_cells_count} ячеек для ID: {process_id}")
             
             # Конвертируем обратно в PDF
             filled_pdf_bytes = convert_to_bytes(render_images)
             
-            self.logger.info(f"(fill_reconciliation_act) Акт сверки успешно заполнен для ID: {process_id}")
+            self.logger.info(f"Акт сверки успешно заполнен для ID: {process_id}")
 
             
             return filled_pdf_bytes
@@ -503,7 +457,7 @@ class ReconciliationActService:
         except Exception as e:
             # Все остальные ошибки оборачиваем в RuntimeError
             error_msg = f"Ошибка при заполнении акта сверки: {str(e)}"
-            self.logger.exception(f"(fill_reconciliation_act) {error_msg} для ID: {process_id}")
+            self.logger.exception(f"{error_msg} для ID: {process_id}")
             
             # Обновляем статус процесса на ERROR
             with self._data_lock:
@@ -511,7 +465,7 @@ class ReconciliationActService:
                 if process_entry:
                     process_entry.status_enum = ProcessStatus.ERROR
                     process_entry.error_message_detail = error_msg
-                    self.logger.info(f"(fill_reconciliation_act) Статус процесса {process_id} изменен на ERROR")
+                    self.logger.info(f"Статус процесса {process_id} изменен на ERROR")
             
             raise RuntimeError(error_msg)
 

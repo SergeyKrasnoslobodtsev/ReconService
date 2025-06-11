@@ -26,10 +26,4 @@ ocr:
   max_workers: 4  # Максимальное количество рабочих потоков для OCR
   dpi_image: 300  
 
-logging:
-  level: "INFO"
-  enable_file_logging: true
-  log_dir: "logs"
-  config_file: "./config/logging.yaml"
-  console_only: false  # true для production с NSSM
   

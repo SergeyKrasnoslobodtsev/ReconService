@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     """Контекстный менеджер для управления жизненным циклом приложения"""
     global reconciliation_service, app_config
     print("приложение запускается...")
-    ServiceInitialize.initialize(config=app_config)
+    ServiceInitialize.initialize()
     reconciliation_service = ReconciliationActService(config=app_config)
     print("ReconciliationActService успешно инициализирован.")
     yield

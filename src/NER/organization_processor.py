@@ -13,8 +13,8 @@ class OrganizationProcessor:
     """
     Отвечает за извлечение, фильтрацию и назначение ролей организациям из текста.
     """
-    def __init__(self, logger: logging.Logger):
-        self.logger = logger
+    def __init__(self):
+        self.logger = logging.getLogger("app." + __class__.__name__)
         self.org_types_full_names_map = {
             'АО': 'акционерное общество', 
             'ОАО': 'открытое акционерное общество',

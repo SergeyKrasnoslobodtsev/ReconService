@@ -7,15 +7,16 @@ from .organization_processor import OrganizationProcessor
 from ..PDFExtractor.base_extractor import Document
 
 
+
 class NERService:
     """
     Сервис для извлечения именованных сущностей и обработки специфичных документов.
     """
     def __init__(self, doc_structure: Document):
         self.doc = doc_structure
-        self.logger = logging.getLogger('app.' + self.__class__.__name__)
-        self.organization_processor = OrganizationProcessor(self.logger)
-        self.reconciliation_extractor = ReconciliationActExtractor(self.doc, self.logger)
+
+        self.organization_processor = OrganizationProcessor()
+        self.reconciliation_extractor = ReconciliationActExtractor(self.doc)
         self._organizations: Optional[list[dict]] = None
         self._seller_details: Optional[list[dict]] = None
     
