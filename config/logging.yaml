@@ -15,7 +15,7 @@ handlers:
 
   file:
     class: logging.handlers.TimedRotatingFileHandler
-    level: DEBUG
+    level: INFO
     formatter: standard
     filename: logs/app.log     
     when: midnight

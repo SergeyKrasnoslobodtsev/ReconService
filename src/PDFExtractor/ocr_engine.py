@@ -49,6 +49,7 @@ class Engine(ABC):
 
 class TesseractEngine(Engine):
     def __init__(self):
+        
         self.cfg = r'--oem 1 --psm 4 -l rus+eng'
 
     def extract_text(self, image: np.ndarray) -> Tuple[str, List[Tuple[int, int, int, int]]]:

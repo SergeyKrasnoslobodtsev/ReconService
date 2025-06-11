@@ -10,21 +10,12 @@ api:
   title: "Reconciliation Act Service API"
   description: "API для обработки актов сверки"
   version: "1.0.0"
-  docs_url: "/docs"
-  redoc_url: "/redoc"
-  
-# Настройки обработки
-processing:
-  max_workers: 4              # Количество потоков для обработки
-  timeout: 300                # Таймаут обработки в секундах
-  max_file_size: 52428800     # Максимальный размер файла (50MB)
-  
-# Настройки хранения
-storage:
-  temp_dir: "temp"
-  logs_dir: "logs"
-  cleanup_interval: 3600      # Интервал очистки временных файлов (секунды)
-  max_storage_time: 86400     # Время хранения обработанных файлов (секунды)
+
+
+service:
+  process_ttl_hours: 1  # Время жизни процесса в часах
+  cleanup_interval_hours: 0.5  # Интервал очистки временных файлов (часов)
+  max_workers: 2  # Максимальное количество рабочих потоков
 
 # Настройки OCR
 ocr:
@@ -32,10 +23,13 @@ ocr:
   language: "rus+eng"
   tessdata_dir: ""
   psm: 4                # Page Segmentation Mode (0-13)
+  max_workers: 4  # Максимальное количество рабочих потоков для OCR
+  dpi_image: 300  
 
-  
-# Настройки безопасности
-security:
-  max_requests_per_minute: 60
-  allowed_origins: ["*"]
+logging:
+  level: "INFO"
+  enable_file_logging: true
+  log_dir: "logs"
+  config_file: "./config/logging.yaml"
+  console_only: false  # true для production с NSSM
   

@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .adaptive_image_processing import AdaptiveImageProcessing
 
-CELL_ROI_PADDING = -5
+CELL_ROI_PADDING = 0
 
 # http://ieeexplore.ieee.org/document/9752204
 class ScanExtractor(BaseExtractor):
@@ -89,7 +89,7 @@ class ScanExtractor(BaseExtractor):
         
         # cleaned = gray
         # посмотри что получилось
-        Image.fromarray(cleaned).show()
+        # Image.fromarray(cleaned).show()
         
         tasks: List[Tuple[Any, np.ndarray]] = []
         for p in paragraphs:
@@ -147,7 +147,7 @@ class ScanExtractor(BaseExtractor):
                         obj.blobs.append(BBox(x1=abs_x1, y1=abs_y1, x2=abs_x2, y2=abs_y2)) 
 
                 except Exception as e:
-                    print(f"Error processing OCR result for object type {type(obj)} (bbox: {obj.bbox if hasattr(obj, 'bbox') else 'N/A'}). Exception: {e}")
+                    self.logger.error(f'Ошибка при извлечении текста с помощью OCR: {e}', exc_info=True)
                     obj.text = ''
 
         return paragraphs, tables

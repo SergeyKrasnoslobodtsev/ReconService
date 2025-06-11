@@ -4,41 +4,37 @@ from enum import Enum
 from datetime import datetime
 
 
-class ReconciliationActRequestModel(BaseModel):
-    """Модель запроса для отправки акта сверки на обработку."""
-    document: str
-
-class ReconciliationActResponseModel(BaseModel):
-    '''Модель ответа сервиса после успешной обработки акта сверки'''
-    document: str
+class ReconciliationAct(BaseModel):
+    """Модель для работы с актами сверки (загрузка и возврат заполненного документа)."""
+    document: str = Field(description="PDF документ в формате base64")
 
 class ProcessIdResponse(BaseModel):
-    """ Модель ответа для получения идентификатора процесса обработки акта сверки."""
-    process_id: str
+    """Ответ  с идентивикатором процесса обработки."""
+    process_id: str = Field(description="Уникальный идентификатор процесса")
 
 class ProcessStatus(Enum):
-    """ Перечисление для статусов процесса обработки акта сверки."""
+    """Статусы процесса обработки акта сверки."""
     WAIT = 0
     DONE = 1
     NOT_FOUND = -1
     ERROR = -2
 
 class RowIdModel(BaseModel):
-    """ Модель для идентификатора строки в таблице акта сверки."""
-    id_table: int
-    id_row: int
+    """Идентификатор строки."""
+    id_table: int = Field(description="Номер таблицы")
+    id_row: int = Field(description="Номер строки")
 
 class ActEntryModel(BaseModel):
-    """ Модель для записи акта сверки, содержащая информацию о дебете и кредите."""
-    row_id: RowIdModel
-    record: str
-    value: float
-    date: str | None
+    """Запись акта сверки с информацией о дебете или кредите."""
+    row_id: RowIdModel = Field(description="Идентификатор строки")
+    record: str = Field(description="Описание операции")
+    value: float = Field(description="Сумма операции")
+    date: str | None = Field(description="Дата операции")
 
 class PeriodModel(BaseModel):
-    """ Модель для периода акта сверки, содержащая даты начала и окончания."""
-    from_date: str | None = Field(alias="from")
-    to_date: str | None = Field(alias="to")
+    """Период акта сверки."""
+    from_date: str | None = Field(alias="from", description="Дата начала периода")
+    to_date: str | None = Field(alias="to", description="Дата окончания периода")
 
     model_config = {
         "populate_by_name": True, 
@@ -46,39 +42,37 @@ class PeriodModel(BaseModel):
     }
 
 
-class ReconciliationActResponseModel(BaseModel):
-    """
-    Модель ответа для успешной обработки акта сверки.   
-    """
-    process_id: str
-    status: int
-    message: str
-    seller: str
-    buyer: str
-    period: PeriodModel
-    debit: List[ActEntryModel]
-    credit: List[ActEntryModel]
+class ReconciliationActResponse(BaseModel):
+    """Ответ с данными извлеченными из акта сверки."""
+    process_id: str = Field(description="Уникальный идентификатор процесса")
+    status: int = Field(description="Статус обработки акта сверки")
+    message: str = Field(description="Сообщение о статусе")
+    seller: str = Field(description="Продавец")
+    buyer: str = Field(description="Покупатель")
+    period: PeriodModel = Field(description="Период акта сверки")
+    debit: List[ActEntryModel] = Field(default_factory=list, description="Список записей дебета")
+    credit: List[ActEntryModel] = Field(default_factory=list, description="Список записей кредита")
 
     model_config = {
         "from_attributes": True   
     }
 
-class FillReconciliationActRequestModel(BaseModel):
-    """
-    Модель запроса для заполнения акта сверки.  
-    """
-    process_id: str
-    debit: List[ActEntryModel]
-    credit: List[ActEntryModel]
+class FillReconciliationActRequest(BaseModel):
+    """Запрос для заполнения акта сверки данными о покупателе."""
+    process_id: str = Field(description="Уникальный идентификатор процесса")
+    debit: List[ActEntryModel] = Field(description="Список записей дебета")
+    credit: List[ActEntryModel] = Field(description="Список записей кредита")
 
 
 # Модель для запроса /process_status
-class ProcessStatusRequest(BaseModel):
-    process_id: str
+class StatusRequest(BaseModel):
+    """Запрос для получения статуса процесса обработки акта сверки."""
+    process_id: str = Field(description="Уникальный идентификатор процесса")
 
-class StatusResponseModel(BaseModel): # Общая модель для статусов WAIT, ERROR, NOT_FOUND
-    status: int
-    message: str
+class StatusResponse(BaseModel): # Общая модель для статусов WAIT, ERROR, NOT_FOUND
+    """Ответ с информацией о статусе процесса."""
+    status: int = Field(description="Статус процесса")
+    message: str = Field(description="Сообщение о статусе")
 
 # Модель для внутреннего представления данных процесса
 class InternalProcessDataModel(BaseModel):

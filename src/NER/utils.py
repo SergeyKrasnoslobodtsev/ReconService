@@ -195,62 +195,6 @@ def get_quarter_end_date(year: int, quarter: int) -> typing.Optional[datetime.da
         return datetime.date(year, 12, 31)
     return None
 
-# def _normalize_currency_string(value: str) -> typing.Optional[str]:
-#     """Предварительно обрабатывает и нормализует строку для парсинга валюты."""
-#     text_to_process = value.strip()
-#     if not text_to_process:
-#         return None
-    
-#     if not any(char.isdigit() for char in text_to_process):
-#         return None 
-    
-#     if any(char.isalpha() for char in text_to_process):
-#         return None
-
-#     s = text_to_process.replace(" ", "")
-#     s = s.replace(',', '.')
-
-#     if not s: 
-#         return None
-
-#     # *** Условие для "двух точек" ***
-#     # Если после замены запятых на точки в строке есть ".." (две точки подряд),
-#     # считаем это невалидным форматом для дальнейшей нормализации.
-#     # _normalize_currency_string вернет None, и format_currency_value вернет исходную строку.
-#     if ".." in s:
-#         return None 
-    
-#     # Обработка нескольких точек, которые НЕ идут подряд (например, разделители тысяч "1.234.56")
-#     if s.count('.') > 1:
-#         parts = s.split('.')
-#         integer_part_str = "".join(parts[:-1])
-#         decimal_part_str = parts[-1]
-        
-#         # Простая валидация для частей (можно усложнить при необходимости)
-#         is_valid_integer_part = (
-#             not integer_part_str or 
-#             integer_part_str == '-' or 
-#             (integer_part_str.startswith('-') and integer_part_str[1:].isdigit()) or
-#             integer_part_str.isdigit()
-#         )
-#         is_valid_decimal_part = (not decimal_part_str or decimal_part_str.isdigit())
-
-#         if not (is_valid_integer_part and is_valid_decimal_part):
-#             return None 
-        
-#         if integer_part_str == "-" and not decimal_part_str: # Избегаем просто "-"
-#             return None
-
-#         s = f"{integer_part_str}.{decimal_part_str}"
-#         if s == ".": # Если исходная строка была, например, " . . "
-#             return None
-    
-#     # Пост-обработка для одиночной точки или нормализованных нескольких точек
-#     if not s or s == "-": 
-#         return None
-
-        
-#     return s
 
 def format_currency_value(value: str) -> str:
     """

@@ -9,6 +9,8 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import time
 
+from .config import AppConfig, LoggingConfig
+
 from .PDFExtractor.base_extractor import Document, Table
 from .PDFExtractor.scan_extractor import ScanExtractor
 from .NER.ner_service import NERService
@@ -16,38 +18,72 @@ from pullenti.Sdk import Sdk
 
 
 from .schemas import ( 
-    FillReconciliationActRequestModel,
     ProcessStatus,
-    RowIdModel,
-    ActEntryModel,
-    PeriodModel,
-    ReconciliationActResponseModel, 
+    FillReconciliationActRequest,
+    ReconciliationActResponse,
+    StatusResponse,
     InternalProcessDataModel,
-    StatusResponseModel 
+    ActEntryModel,
+    RowIdModel,
+    PeriodModel
 )
 
 from .pdf_renderer import convert_to_bytes
 from .pdf_renderer import convert_to_pil
 from .pdf_renderer import draw_text_to_cell
 
-def logger_configure(config_path: str = "./config/logging.yaml"):
-        with open(config_path, "rt", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
+def logger_configure(config: LoggingConfig):
+    """Настраивает логирование на основе конфигурации"""
+    
+    # Если только консоль (например, для production с NSSM)
+    if config.console_only:
+        logging.basicConfig(
+            level=getattr(logging, config.level),
+            format="[%(asctime)s] [%(levelname)s] [%(name)s:%(lineno)d] - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        return
+    
+    # Если файловое логирование отключено
+    if not config.enable_file_logging:
+        logging.basicConfig(
+            level=getattr(logging, config.level),
+            format="[%(asctime)s] [%(levelname)s] [%(name)s:%(lineno)d] - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        return
+    
+    # Полная конфигурация из YAML файла
+    if os.path.exists(config.config_file):
+        with open(config.config_file, "rt", encoding="utf-8") as f:
+            log_config = yaml.safe_load(f)
 
-        for handler in cfg.get("handlers", {}).values():
+        # Создаем директорию для логов
+        os.makedirs(config.log_dir, exist_ok=True)
+        
+        # Обновляем пути в конфигурации
+        for handler in log_config.get("handlers", {}).values():
             filename = handler.get("filename")
             if filename:
-                log_dir = os.path.dirname(filename) or "."
-                os.makedirs(log_dir, exist_ok=True)
+                # Заменяем путь на настроенный из конфига
+                handler["filename"] = os.path.join(config.log_dir, os.path.basename(filename))
 
-        logging.config.dictConfig(cfg)
+        logging.config.dictConfig(log_config)
+    else:
+        # Fallback к базовой конфигурации
+        logging.basicConfig(
+            level=getattr(logging, config.level),
+            format="[%(asctime)s] [%(levelname)s] [%(name)s:%(lineno)d] - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
 
 def InitializationPullenti():
     Sdk.initialize_all()
 class ServiceInitialize:
     @staticmethod
-    def initialize() -> None:
-        logger_configure()
+    def initialize(config: AppConfig) -> None:
+        """Инициализация сервиса с единой конфигурацией"""
+        logger_configure(config.logging)
         InitializationPullenti()
 class ReconciliationActService:
     """
@@ -55,15 +91,16 @@ class ReconciliationActService:
     Предоставляет методы для парсинга, заполнения и получения статуса акта сверки.
     """
     
-    def __init__(self, process_ttl_hours: int = 1, cleanup_interval_hours: int = 0.5):
+    def __init__(self, config: AppConfig):
+        self.config = config
         self.logger = logging.getLogger("app." + __name__)
 
         self.process_data: Dict[str, InternalProcessDataModel] = {} 
         self._data_lock = threading.Lock()
-        self.executor = ThreadPoolExecutor(max_workers=2) 
+        self.executor = ThreadPoolExecutor(max_workers=config.service.max_workers)
 
-        self.process_ttl = timedelta(hours=process_ttl_hours)
-        self.cleanup_interval = timedelta(hours=cleanup_interval_hours)
+        self.process_ttl = timedelta(hours=config.service.process_ttl_hours)
+        self.cleanup_interval = timedelta(hours=config.service.cleanup_interval_hours)
 
         self._start_cleanup_task()
 
@@ -156,11 +193,11 @@ class ReconciliationActService:
             # Используем RowIdModel и ActEntryModel
             act_entries.append(ActEntryModel(
                 row_id=RowIdModel(
-                    id_table=item.get('ner_table_idx', 0), # Предполагаем 0, если не указано
+                    id_table=item.get('ner_table_idx', 0),
                     id_row=row_id_from_ner 
                 ),
                 record=str(item.get('record', '')),
-                value=float(item.get('value', 0.0)), # Убедимся, что value это float
+                value=float(item.get('value', 0.0)),
                 date=item.get('date') 
             ))
         return act_entries
@@ -225,7 +262,18 @@ class ReconciliationActService:
             
             local_debit_seller = self._transform_ner_table_data_to_act_entries(debit_entries_data)
             local_credit_seller = self._transform_ner_table_data_to_act_entries(credit_entries_data)
-            self.logger.info(f"(_process_document) Данные по дебету/кредиту продавца извлечены для ID: {process_id}")
+
+            if not local_debit_seller:
+                final_error_message_for_update = "Не удалось извлечь данные дебета продавца."
+                self.logger.error(f"(_process_document) {final_error_message_for_update} для ID: {process_id}")
+                return
+            
+            if not local_credit_seller:
+                final_error_message_for_update = "Не удалось извлечь данные кредита продавца."
+                self.logger.error(f"(_process_document) {final_error_message_for_update} для ID: {process_id}")
+                return
+
+            self.logger.info(f"(_process_document) Данные по дебету/кредиту {len(local_debit_seller)} продавца извлечены для ID: {process_id}")
 
             # Все данные успешно извлечены
             final_status_for_update = ProcessStatus.DONE
@@ -288,20 +336,20 @@ class ReconciliationActService:
             process_entry = self.process_data.get(process_id)
 
         if not process_entry:
-            # Используем StatusResponseModel для NOT_FOUND
-            return StatusResponseModel(
+            # Используем StatusResponse для NOT_FOUND
+            return StatusResponse(
                 status=ProcessStatus.NOT_FOUND.value, 
                 message="Процесс с указанным ID не найден."
             ).model_dump()
 
         if process_entry.status_enum == ProcessStatus.WAIT:
-            return StatusResponseModel(
+            return StatusResponse(
                 status=ProcessStatus.WAIT.value,
                 message="Документ в обработке, попробуйте позже."
             ).model_dump()
         
         elif process_entry.status_enum == ProcessStatus.ERROR:
-            return StatusResponseModel(
+            return StatusResponse(
                 status=ProcessStatus.ERROR.value,
                 message=process_entry.error_message_detail or "Произошла ошибка при обработке документа."
             ).model_dump()
@@ -311,13 +359,13 @@ class ReconciliationActService:
                  # Если основные данные не извлечены, но статус DONE, возвращаем ошибку или специальный статус
                  self.logger.warning(f"get_process_status: Неполные данные для DONE статуса ID {process_id}. Продавец: {process_entry.seller}, Покупатель: {process_entry.buyer}, Период: {process_entry.period}")
                  # Можно вернуть StatusResponseModel с сообщением о неполных данных
-                 return StatusResponseModel(
+                 return StatusResponse(
                     status=ProcessStatus.ERROR.value, 
                     message="Документ обработан, но не все ключевые данные удалось извлечь."
                  ).model_dump()
 
-            # Формируем ReconciliationActResponseModel
-            response_data = ReconciliationActResponseModel(
+
+            response_data = ReconciliationActResponse(
                 process_id=process_entry.process_id,
                 status=ProcessStatus.DONE.value,
                 message="Документ успешно обработан.",
@@ -330,13 +378,13 @@ class ReconciliationActService:
             return response_data.model_dump(by_alias=True)
 
         # На случай, если появится новый статус, который не обработан
-        return StatusResponseModel(
+        return StatusResponse(
             status=ProcessStatus.ERROR.value,
             message="Неизвестный статус процесса."
         ).model_dump()
 
     
-    def fill_reconciliation_act(self, request: FillReconciliationActRequestModel) -> bytes:
+    def fill_reconciliation_act(self, request: FillReconciliationActRequest) -> bytes:
         """
         Заполняет акт сверки на основе предоставленных данных.
         Заполняет только те ячейки, где значения отличаются.
@@ -448,8 +496,12 @@ class ReconciliationActService:
             
             return filled_pdf_bytes
             
+        except ValueError:
+
+            raise
+            
         except Exception as e:
-            # Неожиданные ошибки при заполнении
+            # Все остальные ошибки оборачиваем в RuntimeError
             error_msg = f"Ошибка при заполнении акта сверки: {str(e)}"
             self.logger.exception(f"(fill_reconciliation_act) {error_msg} для ID: {process_id}")
             

@@ -119,7 +119,7 @@ class ReconciliationActExtractor:
         self.logger.debug(f"Варианты имени продавца для поиска: {sorted_seller_names}")
 
         for tbl_idx, tbl in enumerate(self.doc.get_tables()):
-            self.logger.info(f"Анализ таблицы {tbl_idx + 1} для акта сверки продавца.")
+            self.logger.debug(f"Анализ таблицы {tbl_idx + 1} для акта сверки продавца.")
             main_hdr_cell: typing.Optional[Cell] = None
             # ... (логика поиска main_hdr_cell остается прежней) ...
             for cell in tbl.cells:
@@ -149,7 +149,7 @@ class ReconciliationActExtractor:
                 self.logger.warning(f"Не удалось идентифицировать Д/К колонки в табл. {tbl_idx + 1}.")
                 continue
             
-            self.logger.info(f"Колонки продавца: Дебет(C{debit_col})" + (f", Кредит(C{credit_col})" if credit_col!=-1 else ""))
+            self.logger.debug(f"Колонки продавца: Дебет(C{debit_col})" + (f", Кредит(C{credit_col})" if credit_col!=-1 else ""))
             
             rows_map: typing.Dict[int, typing.Dict[int, str]] = {}
             # ... (логика заполнения rows_map остается прежней) ...
@@ -210,7 +210,7 @@ class ReconciliationActExtractor:
                         "date": date_val_str, 
                         "value": debit_value 
                     })
-                    self.logger.info(f"  Т{tbl_idx}R{r_idx}: Оп='{desc}', Дата={date_val_str or 'None'}, Д={debit_value:.2f} (исходн: '{formatted_debit_str}')")
+                    self.logger.debug(f"  Т{tbl_idx}R{r_idx}: Оп='{desc}', Дата={date_val_str or 'None'}, Д={debit_value:.2f} (исходн: '{formatted_debit_str}')")
                     credit_entries_for_service.append({
                         "ner_table_idx": tbl_idx, 
                         "ner_row_idx": r_idx, 
@@ -218,7 +218,7 @@ class ReconciliationActExtractor:
                         "date": date_val_str, 
                         "value": credit_value 
                     })
-                    self.logger.info(f"  Т{tbl_idx}R{r_idx}: Оп='{desc}', Дата={date_val_str or 'None'}, К={credit_value:.2f} (исходн: '{formatted_credit_str}')")
+                    self.logger.debug(f"  Т{tbl_idx}R{r_idx}: Оп='{desc}', Дата={date_val_str or 'None'}, К={credit_value:.2f} (исходн: '{formatted_credit_str}')")
     
         min_date_str: typing.Optional[str] = None
         max_date_str: typing.Optional[str] = None
@@ -228,9 +228,9 @@ class ReconciliationActExtractor:
             max_dt = max(valid_dates_for_period)
             min_date_str = min_dt.strftime("%d.%m.%Y")
             max_date_str = max_dt.strftime("%d.%m.%Y")
-            self.logger.info(f"Рассчитанный период для продавца: с {min_date_str} по {max_date_str}")
+            self.logger.debug(f"Рассчитанный период для продавца: с {min_date_str} по {max_date_str}")
         else:
-            self.logger.info("Не найдено валидных дат в операциях продавца для определения периода.")
+            self.logger.debug("Не найдено валидных дат в операциях продавца для определения периода.")
 
         return {
             "debit_entries_data": debit_entries_for_service,
@@ -272,7 +272,7 @@ class ReconciliationActExtractor:
         self.logger.debug(f"Варианты имени покупателя для поиска: {sorted_buyer_names}")
 
         for tbl_idx, tbl in enumerate(self.doc.get_tables()):
-            self.logger.info(f"Анализ таблицы {tbl_idx + 1} для акта сверки покупателя.")
+            self.logger.debug(f"Анализ таблицы {tbl_idx + 1} для акта сверки покупателя.")
             main_hdr_cell: typing.Optional[Cell] = None
             for cell in tbl.cells:
                 if not cell.text: 
@@ -304,7 +304,7 @@ class ReconciliationActExtractor:
                 self.logger.warning(f"Не удалось идентифицировать Д/К колонки в табл. {tbl_idx + 1}.")
                 continue
             
-            self.logger.info(f"Колонки покупателя: Дебет(C{debit_col})" + (f", Кредит(C{credit_col})" if credit_col!=-1 else ""))
+            self.logger.debug(f"Колонки покупателя: Дебет(C{debit_col})" + (f", Кредит(C{credit_col})" if credit_col!=-1 else ""))
 
             rows_map: typing.Dict[int, typing.Dict[int, str]] = {}
             for cell in tbl.cells:
@@ -339,7 +339,7 @@ class ReconciliationActExtractor:
                     "date": date_val_str,
                     "value": debit_value
                 })
-                self.logger.info(f"Добавлена запись дебета для T{tbl_idx}R{r_idx}: {debit_value}")
+                self.logger.debug(f"Добавлена запись дебета для T{tbl_idx}R{r_idx}: {debit_value}")
 
                 # Кредит
                 raw_credit_text = row_data.get(credit_col, "") if credit_col != -1 else ""
@@ -359,7 +359,7 @@ class ReconciliationActExtractor:
                     "date": date_val_str,
                     "value": credit_value
                 })
-                self.logger.info(f"Добавлена запись кредита для T{tbl_idx}R{r_idx}: {credit_value}")
+                self.logger.debug(f"Добавлена запись кредита для T{tbl_idx}R{r_idx}: {credit_value}")
 
         return {
             "debit_entries_data": debit_entries_for_service,
