@@ -1,8 +1,8 @@
+import logging.config
 import os
 import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 @dataclass
 class APIConfig:
@@ -57,28 +57,27 @@ def load_config(config_path: str = "./config/config.yaml") -> AppConfig:
         with open(config_path, "r", encoding="utf-8") as f:
             config_data = yaml.safe_load(f) or {}
     
-    # Создаем конфигурации с учетом ENV переменных
+    # Создаем конфигурации с данными из файла или значениями по умолчанию
     api_config = APIConfig(
-        title=os.getenv("API_TITLE", config_data.get("api", {}).get("title", "ReconService API")),
-        description=os.getenv("API_DESCRIPTION", config_data.get("api", {}).get("description", "Сервис обработки актов сверки")),
-        version=os.getenv("API_VERSION", config_data.get("api", {}).get("version", "1.0.0"))
+        title=config_data.get("api", {}).get("title", "ReconService API"),
+        description=config_data.get("api", {}).get("description", "Сервис обработки актов сверки"),
+        version=config_data.get("api", {}).get("version", "1.0.0")
     )
     
     service_config = ServiceConfig(
-        process_ttl_hours=int(os.getenv("RECON_PROCESS_TTL_HOURS", config_data.get("service", {}).get("process_ttl_hours", 24))),
-        cleanup_interval_hours=int(os.getenv("RECON_CLEANUP_INTERVAL_HOURS", config_data.get("service", {}).get("cleanup_interval_hours", 1))),
-        max_workers=int(os.getenv("RECON_MAX_WORKERS", config_data.get("service", {}).get("max_workers", 4)))
+        process_ttl_hours=config_data.get("service", {}).get("process_ttl_hours", 24),
+        cleanup_interval_hours=config_data.get("service", {}).get("cleanup_interval_hours", 1.0),
+        max_workers=config_data.get("service", {}).get("max_workers", 4)
     )
     
     ocr_config = OCRConfig(
-        engine=os.getenv("OCR_ENGINE", config_data.get("ocr", {}).get("engine", "tesseract")),
-        language=os.getenv("OCR_LANGUAGE", config_data.get("ocr", {}).get("language", "rus+eng")),
-        tessdata_dir=os.getenv("OCR_TESSDATA_DIR", config_data.get("ocr", {}).get("tessdata_dir", "")),
-        psm=int(os.getenv("OCR_PSM", config_data.get("ocr", {}).get("psm", 4))),
-        max_workers=int(os.getenv("OCR_MAX_WORKERS", config_data.get("ocr", {}).get("max_workers", 4))),
-        dpi_image=int(os.getenv("OCR_DPI_IMAGE", config_data.get("ocr", {}).get("dpi_image", 300)))
+        engine=config_data.get("ocr", {}).get("engine", "tesseract"),
+        language=config_data.get("ocr", {}).get("language", "rus+eng"),
+        tessdata_dir=config_data.get("ocr", {}).get("tessdata_dir", ""),
+        psm=config_data.get("ocr", {}).get("psm", 4),
+        max_workers=config_data.get("ocr", {}).get("max_workers", 4),
+        dpi_image=config_data.get("ocr", {}).get("dpi_image", 300)
     )
-
     
     return AppConfig(
         api=api_config,

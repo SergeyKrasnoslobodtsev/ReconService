@@ -3,7 +3,7 @@ from typing import Optional, List
 
 
 class ReconciliationAct(BaseModel):
-    """Запрос для отправки акта сверки"""
+    """Акт сверки"""
     document: str = Field(..., description="PDF документ в формате base64")
 
 

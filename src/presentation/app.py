@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from pullenti.Sdk import Sdk
+
 from ..presentation.route import ReconciliationController
 from ..infrastructure.factories.service_factory import ServiceFactory
 from ..config import AppConfig, load_config
@@ -24,8 +26,7 @@ async def lifespan(app: FastAPI):
     
     try:
         # Инициализация Pullenti SDK
-        from ..service import InitializationPullenti
-        InitializationPullenti()
+        Sdk.initialize_all()
         logger.info("Pullenti SDK инициализирован")
         
         yield
@@ -51,8 +52,8 @@ def create_app(config: AppConfig) -> FastAPI:
         title=config.api.title,
         description=config.api.description,
         version=config.api.version,
-        docs_url="/docs",  # Включаем Swagger UI
-        redoc_url="/redoc"  # Включаем ReDoc
+        docs_url="/docs", 
+        redoc_url="/redoc"
     )
     
     # Настраиваем CORS

@@ -91,7 +91,7 @@ class ReconciliationController:
         async def get_process_status(request: GetProcessStatusRequest):
             """Получает статус процесса обработки"""
             try:
-                # Вызываем use case
+
                 status_dto = await self._get_process_status_use_case.execute(request.process_id)
                 
                 # Определяем HTTP статус код на основе статуса процесса

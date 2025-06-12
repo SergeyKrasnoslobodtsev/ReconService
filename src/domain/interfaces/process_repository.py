@@ -38,3 +38,8 @@ class IProcessRepository(ABC):
     async def get_count(self) -> int:
         """Возвращает количество процессов"""
         pass
+
+    @abstractmethod
+    async def shutdown(self) -> None:
+        """Освобождает ресурсы"""
+        pass
