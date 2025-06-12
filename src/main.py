@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException, Request, status as fastapi_status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse
 import base64 
 
 from fastapi.openapi.docs import (
@@ -128,7 +128,6 @@ async def handle_fill_reconciliation_act(input_data: FillReconciliationActReques
         
     except ValueError as ve:
         # Ошибки бизнес-логики
-        reconciliation_service.logger.warning(f"Ошибка при заполнении акта: {ve}")
         error_response = StatusResponse(
             status=ProcessStatus.ERROR.value,
             message=str(ve)
@@ -136,8 +135,6 @@ async def handle_fill_reconciliation_act(input_data: FillReconciliationActReques
         return JSONResponse(content=error_response.model_dump(), status_code=fastapi_status.HTTP_422_UNPROCESSABLE_ENTITY)
         
     except RuntimeError as re:
-        # Ошибки при заполнении документа
-        reconciliation_service.logger.error(f"Ошибка выполнения при заполнении акта: {re}")
         error_response = StatusResponse(
             status=ProcessStatus.ERROR.value,
             message=str(re)

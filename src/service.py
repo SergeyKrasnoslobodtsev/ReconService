@@ -1,13 +1,12 @@
 import logging
-import logging.config
-import os
 import threading 
 from concurrent.futures import ThreadPoolExecutor
-import yaml
 import uuid
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import time
+
+from .exceptions import ProcessIdNotFoundError
 
 from .config import AppConfig
 
@@ -352,14 +351,12 @@ class ReconciliationActService:
                 process_entry = self.process_data.get(process_id)
             
             if not process_entry:
-                error_msg = f"Процесс с ID {process_id} не найден."
-                self.logger.error(f"{error_msg}")
-                raise ValueError(error_msg)
-            
-            if process_entry.status_enum != ProcessStatus.DONE:
-                error_msg = f"Невозможно заполнить акт сверки для процесса с ID {process_id}, статус: {process_entry.status_enum.name}."
-                self.logger.error(f"{error_msg}")
-                raise ValueError(error_msg)
+                raise ProcessIdNotFoundError(process_id)
+
+            # if process_entry.status_enum != ProcessStatus.DONE:
+            #     error_msg = f"Невозможно заполнить акт сверки для процесса с ID {process_id}, статус: {process_entry.status_enum.name}."
+            #     self.logger.error(f"{error_msg}")
+            #     raise ValueError(error_msg)
 
             self.logger.info(f"Начало заполнения акта сверки для ID: {process_id}")
 
@@ -374,7 +371,6 @@ class ReconciliationActService:
             ner_service = NERService(doc)
             buyer_extracted = ner_service.extract_buyer_reconciliation_details(process_entry.buyer_org_data)
             
-            # buyer_extracted: dict с debit_entries_data и credit_entries_data
             buyer_debit = {(d['ner_table_idx'], d['ner_row_idx'], d['ner_col_idx']): d for d in buyer_extracted.get('debit_entries_data', [])}
             buyer_credit = {(d['ner_table_idx'], d['ner_row_idx'], d['ner_col_idx']): d for d in buyer_extracted.get('credit_entries_data', [])}
 
@@ -449,11 +445,7 @@ class ReconciliationActService:
 
             
             return filled_pdf_bytes
-            
-        except ValueError:
-
-            raise
-            
+                       
         except Exception as e:
             # Все остальные ошибки оборачиваем в RuntimeError
             error_msg = f"Ошибка при заполнении акта сверки: {str(e)}"

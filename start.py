@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 
+
 # Добавляем путь к проекту в PYTHONPATH
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
@@ -28,7 +29,7 @@ def main():
     # Запускаем сервер
     import uvicorn
     uvicorn.run(
-        "src.main:app",
+        "src.presentation.app:app",
         host=host,
         port=port,
         workers=workers,

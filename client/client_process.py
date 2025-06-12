@@ -112,7 +112,7 @@ class ReconServiceClient:
         
         else:
             print(f"❌ Ошибка заполнения: {response.status_code} - {response.text}")
-            raise Exception(f"Failed to fill document: {response.status_code}")
+            raise Exception(f"{response.text}: {response.status_code}")
     
     def _print_extraction_results(self, result: Dict[str, Any]):
         """Выводит результаты извлечения данных"""
