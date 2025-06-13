@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from pullenti.Sdk import Sdk
 
 from ..presentation.route import ReconciliationController
+from ..presentation.route_docs import create_docs_router
 from ..infrastructure.factories.service_factory import ServiceFactory
 from ..config import AppConfig, load_config
 
@@ -52,8 +53,8 @@ def create_app(config: AppConfig) -> FastAPI:
         title=config.api.title,
         description=config.api.description,
         version=config.api.version,
-        docs_url="/docs", 
-        redoc_url="/redoc"
+        docs_url=None, 
+        redoc_url=None
     )
     
     # Настраиваем CORS
@@ -78,12 +79,13 @@ def create_app(config: AppConfig) -> FastAPI:
         get_process_status_use_case=service_factory.create_get_process_status_use_case(),
         fill_document_use_case=service_factory.create_fill_document_use_case()
     )
-    
+    docs_router = create_docs_router(app)
     # Подключаем роуты
     app.include_router(
         reconciliation_controller.router
     )
-    
+    app.include_router(docs_router)
+
     # # Добавляем роут для совместимости со старым API
     # app.include_router(
     #     reconciliation_controller.router,

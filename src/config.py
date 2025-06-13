@@ -1,37 +1,44 @@
+import json
 import logging.config
 import os
+from pydantic import BaseModel
 import yaml
 from pathlib import Path
 from dataclasses import dataclass
 
-@dataclass
-class APIConfig:
-    title: str = "Reconciliation Act Service API"
-    description: str = "API для обработки актов сверки"
-    version: str = "1.0.0"
-
-@dataclass
-class ServiceConfig:
-    process_ttl_hours: int = 1
-    cleanup_interval_hours: float = 0.5
-    max_workers: int = 1
-
-
-@dataclass
-class OCRConfig:
-    engine: str = "tesseract"
-    language: str = "rus+eng"
-    tessdata_dir: str = ""
-    psm: int = 4
-    max_workers: int = 4
-    dpi_image: int = 300
-
-
-@dataclass
-class AppConfig:
+class APIConfig(BaseModel):
+    title: str
+    description: str 
+    version: str 
+class ServiceConfig(BaseModel):
+    process_ttl_hours: int 
+    cleanup_interval_hours: float 
+    max_workers: int 
+class OCRConfig(BaseModel):
+    engine: str 
+    language: str
+    tessdata_dir: str 
+    psm: int 
+    max_workers: int 
+    dpi_image: int 
+class AppConfig(BaseModel):
     api: APIConfig
     service: ServiceConfig
     ocr: OCRConfig
+
+def load_config(config_path: str = "./config/app_config.yaml"):
+    """Загружает конфигурацию из файла с переопределением через ENV"""
+    
+    # Загружаем базовую конфигурацию
+    config_data = {}
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            config_data = yaml.safe_load(f) or {}
+    return AppConfig(
+        api=APIConfig(**config_data.get("api", {})),
+        service=ServiceConfig(**config_data.get("service", {})),
+        ocr=OCRConfig(**config_data.get("ocr", {}))
+    )
 
 def load_env_file(env_file: str):
     """Загружает переменные из .env файла"""
@@ -48,39 +55,3 @@ def load_env_file(env_file: str):
                 if key not in os.environ:
                     os.environ[key] = value
 
-def load_config(config_path: str = "./config/config.yaml") -> AppConfig:
-    """Загружает конфигурацию из файла с переопределением через ENV"""
-    
-    # Загружаем базовую конфигурацию
-    config_data = {}
-    if os.path.exists(config_path):
-        with open(config_path, "r", encoding="utf-8") as f:
-            config_data = yaml.safe_load(f) or {}
-    
-    # Создаем конфигурации с данными из файла или значениями по умолчанию
-    api_config = APIConfig(
-        title=config_data.get("api", {}).get("title", "ReconService API"),
-        description=config_data.get("api", {}).get("description", "Сервис обработки актов сверки"),
-        version=config_data.get("api", {}).get("version", "1.0.0")
-    )
-    
-    service_config = ServiceConfig(
-        process_ttl_hours=config_data.get("service", {}).get("process_ttl_hours", 24),
-        cleanup_interval_hours=config_data.get("service", {}).get("cleanup_interval_hours", 1.0),
-        max_workers=config_data.get("service", {}).get("max_workers", 4)
-    )
-    
-    ocr_config = OCRConfig(
-        engine=config_data.get("ocr", {}).get("engine", "tesseract"),
-        language=config_data.get("ocr", {}).get("language", "rus+eng"),
-        tessdata_dir=config_data.get("ocr", {}).get("tessdata_dir", ""),
-        psm=config_data.get("ocr", {}).get("psm", 4),
-        max_workers=config_data.get("ocr", {}).get("max_workers", 4),
-        dpi_image=config_data.get("ocr", {}).get("dpi_image", 300)
-    )
-    
-    return AppConfig(
-        api=api_config,
-        service=service_config,
-        ocr=ocr_config
-    )

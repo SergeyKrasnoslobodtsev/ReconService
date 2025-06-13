@@ -1,10 +1,4 @@
-# Основные настройки приложения
-server:
-  host: "0.0.0.0"
-  port: 8000
-  reload: false
-  workers: 1
-  
+ 
 # Настройки API
 api:
   title: "Reconciliation Act Service API"
@@ -14,7 +8,7 @@ api:
 
 service:
   process_ttl_hours: 1  # Время жизни процесса в часах
-  cleanup_interval_hours: 0.5  # Интервал очистки временных файлов (часов)
+  cleanup_interval_hours: 0.1  # Интервал очистки временных файлов (часов)
   max_workers: 2  # Максимальное количество рабочих потоков
 
 # Настройки OCR

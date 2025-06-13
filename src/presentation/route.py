@@ -2,7 +2,11 @@ import logging
 import base64
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse, Response
-
+from fastapi.openapi.docs import (
+    get_redoc_html,
+    get_swagger_ui_html,
+    get_swagger_ui_oauth2_redirect_html,
+)
 from .models import (
     ReconciliationAct, 
     GetProcessStatusRequest, 
@@ -205,3 +209,6 @@ class ReconciliationController:
                     ).model_dump(),
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
+    
+
+
