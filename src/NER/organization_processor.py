@@ -33,6 +33,45 @@ class OrganizationProcessor:
         self.buyer_key_words = ['покупатель', 'с другой стороны']
         self.org_ontos = self._configure_org_ontology()
 
+    def _clean_organization_name(self, raw_name: str) -> str:
+        """Очищает название организации от ИНН/КПП и других лишних данных"""
+        import re
+        
+        # Убираем различные варианты ИНН/КПП
+        # Паттерн для "(ИНН цифры)" или ", ИНН цифры" или "ИНН/КПП цифры/цифры"
+        patterns = [
+            r'\s*\(\s*ИНН\s+[\d/]+.*?\)',  # (ИНН 1234567890) - убираем все до закрывающей скобки
+            r',\s*ИНН/КПП\s+[\d/]+',       # , ИНН/КПП 1234567890/123456789
+            r',\s*ИНН\s+[\d]+',            # , ИНН 1234567890
+            r'\s+\(\s*ИНН\s+[\d]+.*',      # (ИНН 1234567890 - убираем все после (ИНН
+        ]
+        
+        name = raw_name
+        for pattern in patterns:
+            name = re.sub(pattern, '', name, flags=re.IGNORECASE)
+        
+        # Убираем лишние пробелы и запятые в конце
+        name = name.strip().rstrip(',').strip()
+        
+        # Исправляем незакрытые кавычки
+        name = self._fix_quotes(name)
+        
+        return name
+    
+    def _fix_quotes(self, text: str) -> str:
+        """Исправляет незакрытые кавычки в названии организации"""
+        if not text:
+            return text
+            
+        # Подсчитываем открывающие и закрывающие кавычки
+        opening_quotes = text.count('"')
+        
+        # Если количество кавычек нечетное, добавляем закрывающую кавычку
+        if opening_quotes % 2 == 1:
+            text += '"'
+            
+        return text
+
     def _configure_org_ontology(self) -> ExtOntology:
         org_ontos = ExtOntology()
         map_orgs = {
@@ -137,16 +176,32 @@ class OrganizationProcessor:
                 if base_name: 
                     can_names.append(base_name)
             
+            # Логирование для отладки проблемы с названиями
+            self.logger.debug(f"Оригинальный текст из документа: '{org_text_from_doc}'")
+            self.logger.debug(f"Pullenti str_repr: '{current_org_str}'")
+            self.logger.debug(f"Canonical names: {can_names}")
+            
+            # Попытаемся использовать более корректное название
+            display_name = current_org_str
+            if not is_linked_to_custom_ontology:
+                # Для не-онтологических организаций предпочитаем оригинальный текст
+                if org_text_from_doc and len(org_text_from_doc.strip()) > 0:
+                    # Очистим название от ИНН/КПП и других лишних данных
+                    clean_name = self._clean_organization_name(org_text_from_doc.strip())
+                    display_name = clean_name if clean_name else org_text_from_doc.strip()
+                    self.logger.debug(f"Очищенное название: '{clean_name}' (из '{org_text_from_doc}')")
+            
             raw_orgs.append({
                 "text": org_text_from_doc, 
-                "str_repr": current_org_str,
+                "str_repr": display_name,  # Используем более корректное название
+                "pullenti_str_repr": current_org_str,  # Сохраняем оригинальное от Pullenti для отладки
                 "canonical_names": sorted(list(set(cn for cn in can_names if cn))),
                 "window": txt[occ.end_char : min(occ.end_char + 70, len(txt))].lower(),
                 "is_linked_to_custom_ontology": is_linked_to_custom_ontology, 
                 "role": None
             })
             
-            self.logger.debug(f"Добавлена организация: '{current_org_str}' (окно: '{txt[occ.end_char : min(occ.end_char + 30, len(txt))].lower()}')")
+            self.logger.debug(f"Добавлена организация: '{display_name}' (Pullenti: '{current_org_str}') (окно: '{txt[occ.end_char : min(occ.end_char + 30, len(txt))].lower()}')")
         
         return raw_orgs
 
@@ -228,6 +283,8 @@ class OrganizationProcessor:
             log_entry = f"{role.upper()} - {org['str_repr']}"
             if not org['is_linked_to_custom_ontology']: 
                 log_entry += f" (Исходный: '{org['text']}')"
+            if 'pullenti_str_repr' in org and org['pullenti_str_repr'] != org['str_repr']:
+                log_entry += f" (Pullenti: '{org['pullenti_str_repr']}')"
             self.logger.info(log_entry)
 
     def process_text(self, text: str) -> list[dict]:

@@ -66,7 +66,7 @@ def create_app(config: AppConfig) -> FastAPI:
         allow_headers=["*"],
     )
     
-    # Статические файлы (если нужны)
+    # Статические файлы 
     try:
         app.mount("/static", StaticFiles(directory="static"), name="static")
     except Exception:

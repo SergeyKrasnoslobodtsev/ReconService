@@ -4,7 +4,6 @@ from typing import List, Dict, Any
 from ..dto.process_dto import FillDocumentDto
 from ...domain.value_objects.process_id import ProcessId
 from ...domain.interfaces.process_repository import IProcessRepository
-from ...domain.models.process import ProcessStatus
 from ...exceptions import ProcessIdNotFoundError
 from ...NER.ner_service import NERService
 from ...pdf_renderer import convert_to_pil, convert_to_bytes, draw_text_to_cell
@@ -80,7 +79,7 @@ class FillDocumentUseCase:
     
     def _get_tables_from_structure(self, document_structure) -> List[Any]:
         """Извлекает таблицы из структуры документа"""
-        # ИСПРАВЛЯЕМ - используем сохраненную структуру
+
         if hasattr(document_structure, 'tables') and document_structure.tables:
             # Если в metadata есть сохраненные таблицы, используем их
             return document_structure.tables

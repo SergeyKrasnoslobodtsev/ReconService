@@ -7,9 +7,13 @@ from PIL import ImageFont
 import pymupdf
 from pdf2image import convert_from_path
 
+# Инициализация Pullenti SDK
+from pullenti.Sdk import Sdk
+Sdk.initialize_all() 
+
 
 # ---- настройка имён -----------------------------------------------------------
-SCAN_PDF_NAME = "АС РУ- ВОСЬМОЙ ВЕТРОПАРК.pdf"          # ожидаем True (скан)
+SCAN_PDF_NAME = "Акт сверки №0000.pdf"          # ожидаем True (скан)
 STRUCTURED_PDF_NAME = "АСР СДД 2 кв.2024 (подп. к-а).pdf"  # ожидаем False (цифровой)
 # ------------------------------------------------------------------------------
 

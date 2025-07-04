@@ -68,7 +68,8 @@ class MemoryProcessRepository(IProcessRepository):
                 del self._storage[process_id]
         
         if expired_ids:
-            self._logger.info(f"Очищено {len(expired_ids)} истекших процессов")
+            for id in expired_ids:
+                self._logger.info(f"Процесс {id} удален по истекшему времени жизненного цикла")
         
         return len(expired_ids)
     

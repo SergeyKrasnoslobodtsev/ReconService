@@ -1,6 +1,5 @@
 import requests
 import base64
-import json
 import time
 from pathlib import Path
 from typing import Dict, Any

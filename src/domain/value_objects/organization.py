@@ -8,9 +8,9 @@ class Organization(BaseModel):
     role: str = Field(..., description="Роль организации")
     raw_data: Optional[Dict[str, Any]] = Field(default=None, description="Сырые данные организации")
     
-    model_config = {
-        "frozen": True
-    }
+    # model_config = {
+    #     "frozen": True
+    # }
     
     @field_validator('role')
     def validate_role(cls, v):
