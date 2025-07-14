@@ -73,6 +73,7 @@ class OrganizationProcessor:
         return text
 
     def _configure_org_ontology(self) -> ExtOntology:
+        """Настраивает онтологию организаций с предопределенными организациями"""
         org_ontos = ExtOntology()
         map_orgs = {
             'РУСАЛ НОВОКУЗНЕЦКИЙ АЛЮМИНИЕВЫЙ ЗАВОД': 'АО',
