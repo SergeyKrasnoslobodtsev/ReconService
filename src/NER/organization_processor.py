@@ -1,6 +1,5 @@
-
 import logging
-
+import re
 from pullenti.ner.AnalysisResult import AnalysisResult
 from pullenti.ner.ExtOntology import ExtOntology
 from pullenti.ner.ProcessorService import ProcessorService
@@ -183,15 +182,18 @@ class OrganizationProcessor:
             self.logger.debug(f"Canonical names: {can_names}")
             
             # Попытаемся использовать более корректное название
-            display_name = current_org_str
+            base_name = current_org_str
             if not is_linked_to_custom_ontology:
-                # Для не-онтологических организаций предпочитаем оригинальный текст
                 if org_text_from_doc and len(org_text_from_doc.strip()) > 0:
-                    # Очистим название от ИНН/КПП и других лишних данных
-                    clean_name = self._clean_organization_name(org_text_from_doc.strip())
-                    display_name = clean_name if clean_name else org_text_from_doc.strip()
-                    self.logger.debug(f"Очищенное название: '{clean_name}' (из '{org_text_from_doc}')")
-            
+                    base_name = org_text_from_doc.strip()
+
+            clean_name = self._clean_organization_name(base_name)
+            # "Общество с ограниченной ответственностью" в "ООО"
+            normalized_name = self._normalize_org_name(clean_name)
+            # В конце убеждаемся, что формат соответствует "Имя, Тип"
+            display_name = self._ensure_pullenti_format(normalized_name)
+
+            self.logger.debug(f"Финальное название организации: '{display_name}'")
             raw_orgs.append({
                 "text": org_text_from_doc, 
                 "str_repr": display_name,  # Используем более корректное название
@@ -205,7 +207,57 @@ class OrganizationProcessor:
             self.logger.debug(f"Добавлена организация: '{display_name}' (Pullenti: '{current_org_str}') (окно: '{txt[occ.end_char : min(occ.end_char + 30, len(txt))].lower()}')")
         
         return raw_orgs
+    
+    def _ensure_pullenti_format(self, name: str) -> str:
+        """
+        Проверяет, соответствует ли имя формату 'ТИП "НАЗВАНИЕ"',
+        и если да, преобразует его в формат 'НАЗВАНИЕ, ТИП'.
+        """
+        if not name:
+            return name
 
+        # Создаем паттерн для поиска всех известных нам типов организаций в начале строки
+        org_types_pattern = "|".join(re.escape(k) for k in self.org_types_full_names_map.keys())
+        pattern = re.compile(r'^\s*(' + org_types_pattern + r')\s*"(.*?)"\s*$', re.IGNORECASE)
+        
+        match = pattern.match(name)
+        
+        # Если нашли соответствие формату 'ТИП "НАЗВАНИЕ"'
+        if match:
+            org_type = match.group(1).upper()  # "АО"
+            org_name = match.group(2)          # "ЕВРОСИБЭНЕРГО"
+            
+            # Собираем в формате "НАЗВАНИЕ, ТИП"
+            formatted_name = f'{org_name}, {org_type}'
+            self.logger.debug(f"Название '{name}' переформатировано в '{formatted_name}'")
+            return formatted_name
+            
+        # Если имя уже в нужном формате или в неизвестном, возвращаем как есть
+        return name
+
+    def _normalize_org_name(self, name: str) -> str:
+        """Нормализует название организации, заменяя полные формы на сокращения."""
+        if not name:
+            return name
+        
+        # Создаем обратный словарь: {'полное имя в нижнем регистре': 'сокращение'}
+        reversed_map = {v.lower(): k for k, v in self.org_types_full_names_map.items()}
+        
+        # Сортируем по длине, чтобы сначала заменять более длинные строки (например, "открытое акционерное общество" перед "акционерное общество")
+        sorted_full_names = sorted(reversed_map.keys(), key=len, reverse=True)
+
+        normalized_name = name
+        for full_name in sorted_full_names:
+            # Ищем полное имя в начале строки без учета регистра
+            pattern = re.compile(r'^\s*' + re.escape(full_name) + r'\b', re.IGNORECASE)
+            if pattern.search(normalized_name):
+                abbreviation = reversed_map[full_name]
+                # Заменяем найденное полное имя на сокращение
+                normalized_name = pattern.sub(abbreviation, normalized_name, 1).strip()
+                break  # После первой успешной замены выходим
+                
+        return normalized_name
+    
     def _filter_subsumed_organizations(self, orgs_list: list[dict]) -> list[dict]:
         final_orgs = []
         for i, org_i in enumerate(orgs_list):
