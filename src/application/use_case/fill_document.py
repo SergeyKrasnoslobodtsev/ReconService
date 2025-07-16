@@ -6,7 +6,7 @@ from ...domain.value_objects.process_id import ProcessId
 from ...domain.interfaces.process_repository import IProcessRepository
 from ...exceptions import ProcessIdNotFoundError
 from ...NER.ner_service import NERService
-from ...pdf_renderer import convert_to_pil, convert_to_bytes, draw_text_to_cell
+from ...pdf_renderer import convert_to_pil, convert_to_bytes, draw_text_to_cell_with_context, get_row_context
 
 
 class FillDocumentUseCase:
@@ -173,7 +173,7 @@ class FillDocumentUseCase:
         tables: List[Any],
         render_images: List[Any]
     ) -> bool:
-        """Заполняет одну ячейку"""
+        """Заполняет одну ячейку с учетом контекста строки."""
         
         # Извлекаем данные из entry
         row_id = entry.get('row_id', {})
@@ -224,7 +224,10 @@ class FillDocumentUseCase:
             self._logger.warning(f"Некорректная страница {page_num}")
             return False
         
-        # Заполняем ячейку
+        # НОВОЕ: Получаем контекст строки
+        row_cells = get_row_context(cell, tables)
+        
+        # Заполняем ячейку с учетом контекста
         img = render_images[page_num]
         font_size = getattr(table, 'average_blob_height', 24)
         if hasattr(table, 'average_blob_height') and table.average_blob_height:
@@ -232,10 +235,11 @@ class FillDocumentUseCase:
         
         formatted_value = f"{value:,.2f}".replace(',', ' ').replace('.', ',')
         
-        render_images[page_num] = draw_text_to_cell(
-            img, cell, formatted_value, font_size=font_size
+        # ИЗМЕНЕНО: Используем новую функцию с контекстом
+        render_images[page_num] = draw_text_to_cell_with_context(
+            img, cell, formatted_value, font_size, row_cells
         )
         
-        self._logger.debug(f"Успешно заполнена ячейка {entry_type} [{table_idx}, {row_idx}, {col_idx}] значением {formatted_value}")
+        self._logger.debug(f"Успешно заполнена ячейка {entry_type} [{table_idx}, {row_idx}, {col_idx}] значением {formatted_value} с учетом контекста строки")
         
         return True

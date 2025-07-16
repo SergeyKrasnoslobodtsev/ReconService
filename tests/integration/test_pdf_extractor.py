@@ -7,6 +7,7 @@ import common_test
 from src.PDFExtractor.scan_extractor import ScanExtractor
 from src.PDFExtractor.native_extractor import NativeExtractor
 from src.PDFExtractor.base_extractor import Page, Table
+from src.config import load_config
 
 
 def _draw_table_visualization(image, page: Page, tables: List[Table]):
@@ -59,7 +60,7 @@ def _draw_table_visualization(image, page: Page, tables: List[Table]):
 
 @pytest.fixture
 def extractors():
-
+    load_config()
     extractor_scan = ScanExtractor()
     extractor_native = NativeExtractor()
 

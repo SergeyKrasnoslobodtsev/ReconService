@@ -99,7 +99,7 @@ class ScanExtractor(BaseExtractor):
             for c in tbl.cells:
                 
                 pad_box = c.bbox.padding(CELL_ROI_PADDING)
-                roi = cleaned[pad_box.y1:pad_box.y2, pad_box.x1:pad_box.x2]
+                roi = cleaned[c.bbox.y1:c.bbox.y2, c.bbox.x1:c.bbox.x2]
                 
                     
                 tasks.append((c, roi))
@@ -128,7 +128,7 @@ class ScanExtractor(BaseExtractor):
                     elif isinstance(obj, Cell):
 
                         
-                        padded_bbox_for_cell_roi = obj.bbox.padding(CELL_ROI_PADDING + 5)
+                        padded_bbox_for_cell_roi = obj.bbox.padding(CELL_ROI_PADDING)
                         roi_origin_x_on_page = padded_bbox_for_cell_roi.x1
                         roi_origin_y_on_page = padded_bbox_for_cell_roi.y1
                     else:
@@ -149,9 +149,354 @@ class ScanExtractor(BaseExtractor):
                 except Exception as e:
                     self.logger.error(f'Ошибка при извлечении текста с помощью OCR: {e}', exc_info=True)
                     obj.text = ''
-
+        # self._invisible_lines_detection(tables)
+        self._post_process_tables(tables, cleaned)
         return paragraphs, tables
 
+    def _get_lines_in_cell(self, cell: Cell) -> List[List[BBox]]:
+        """Группирует blobs в ячейке в строки и возвращает их."""
+        if not cell.blobs:
+            return []
+
+        blobs_in_cell = sorted(cell.blobs, key=lambda b: b.y1)
+        
+        lines = []
+        current_line = [blobs_in_cell[0]]
+        for blob in blobs_in_cell[1:]:
+            last_blob_in_line = current_line[-1]
+            tolerance = last_blob_in_line.height / 2
+
+            if abs(blob.y1 - last_blob_in_line.y1) <= tolerance:
+                current_line.append(blob)
+            else:
+                lines.append(current_line)
+                current_line = [blob]
+        lines.append(current_line)
+        return lines
+
+    def _post_process_tables(self, tables: List[Table], image: np.ndarray):
+        """
+        Постобработка таблиц для разделения строк на основе расположения текста.
+        Разделяет строки с множественными значениями в финансовых колонках.
+        """
+        self.logger.info(f"Начинаем постобработку {len(tables)} таблиц")
+        
+        for table_idx, table in enumerate(tables):
+            self.logger.info(f"Обрабатываем таблицу {table_idx + 1}/{len(tables)} с {len(table.cells)} ячейками")
+            
+            # ИСПРАВЛЕНИЕ: Определяем финансовые колонки один раз для всей таблицы
+            table_financial_columns = self._identify_table_financial_columns(table.cells)
+            self.logger.info(f"Финансовые колонки таблицы: debit={table_financial_columns['debit']}, credit={table_financial_columns['credit']}")
+            
+            final_cells = []
+            rows = self._group_cells_by_row(table.cells)
+            self.logger.info(f"Таблица разделена на {len(rows)} строк")
+            
+            new_row_counter = 0
+            for row_idx, row_cells in enumerate(rows):
+                self.logger.debug(f"Обрабатываем строку {row_idx + 1}/{len(rows)} с {len(row_cells)} ячейками")
+                
+                processed_rows = self._process_table_row(row_cells, image, new_row_counter, row_idx, table_financial_columns)
+                final_cells.extend(processed_rows['cells'])
+                new_row_counter = processed_rows['next_row_index']
+                
+                original_count = len(row_cells)
+                new_count = len(processed_rows['cells'])
+                if new_count > original_count:
+                    self.logger.info(f"Строка {row_idx + 1} разделена: было {original_count} ячеек, стало {new_count}")
+
+            table.cells = final_cells
+            self.logger.info(f"Таблица {table_idx + 1} обработана: итого {len(final_cells)} ячеек")
+        
+        return tables
+
+    def _identify_table_financial_columns(self, all_cells: List[Cell]) -> dict:
+        """Определяет финансовые колонки для всей таблицы на основе заголовков и содержимого."""
+        financial_cols = {'debit': [], 'credit': []}
+        
+        # Первый проход - поиск заголовков дебет/кредит
+        for cell in all_cells:
+            text_lower = cell.text.lower()
+            if any(keyword in text_lower for keyword in ['дебет', 'debit', 'дебит']):
+                if cell.col not in financial_cols['debit']:
+                    financial_cols['debit'].append(cell.col)
+            elif any(keyword in text_lower for keyword in ['кредит', 'credit']):
+                if cell.col not in financial_cols['credit']:
+                    financial_cols['credit'].append(cell.col)
+        
+        if financial_cols['debit'] or financial_cols['credit']:
+            self.logger.debug(f"Найдены финансовые колонки по заголовкам: debit={financial_cols['debit']}, credit={financial_cols['credit']}")
+            return financial_cols
+        
+        # Второй проход - анализируем содержимое всех ячеек
+        cols_with_financial_data = {}
+        for cell in all_cells:
+            if self._contains_financial_value(cell.text):
+                if cell.col not in cols_with_financial_data:
+                    cols_with_financial_data[cell.col] = 0
+                cols_with_financial_data[cell.col] += len(self._extract_financial_values(cell.text))
+        
+        # Сортируем колонки по количеству финансовых значений
+        sorted_financial_cols = sorted(cols_with_financial_data.items(), key=lambda x: x[1], reverse=True)
+        self.logger.debug(f"Колонки с финансовыми данными: {sorted_financial_cols}")
+        
+        if len(sorted_financial_cols) >= 2:
+            # Берем две колонки с наибольшим количеством финансовых данных
+            col1, col2 = sorted_financial_cols[0][0], sorted_financial_cols[1][0]
+            # Левую считаем дебетом, правую - кредитом
+            if col1 < col2:
+                financial_cols['debit'] = [col1]
+                financial_cols['credit'] = [col2]
+            else:
+                financial_cols['debit'] = [col2]
+                financial_cols['credit'] = [col1]
+            self.logger.debug(f"Найдены финансовые колонки по содержимому: debit={financial_cols['debit']}, credit={financial_cols['credit']}")
+            return financial_cols
+        
+        # Третий вариант - используем позицию (последние 2 колонки)
+        if all_cells:
+            max_col = max(cell.col for cell in all_cells)
+            if max_col >= 1:
+                financial_cols['debit'] = [max_col - 1]
+                financial_cols['credit'] = [max_col]
+                self.logger.debug(f"Используем финансовые колонки по позиции: debit={financial_cols['debit']}, credit={financial_cols['credit']}")
+        
+        return financial_cols
+
+    def _group_cells_by_row(self, cells: List[Cell]) -> List[List[Cell]]:
+        """Группирует ячейки по строкам."""
+        from itertools import groupby
+        
+        sorted_cells = sorted(cells, key=lambda c: (c.row, c.col))
+        return [list(group) for _, group in groupby(sorted_cells, key=lambda c: c.row)]
+
+    def _process_table_row(self, row_cells: List[Cell], image: np.ndarray, start_row_index: int, debug_row_idx: int, financial_columns: dict) -> dict:
+        """
+        Обрабатывает одну строку таблицы, определяя нужно ли её разделить.
+        Возвращает обработанные ячейки и следующий индекс строки.
+        """
+        self.logger.debug(f"=== Анализ строки {debug_row_idx + 1} ===")
+        
+        # Логируем содержимое ячеек
+        for i, cell in enumerate(row_cells):
+            self.logger.debug(f"  Ячейка {i} (col={cell.col}): '{cell.text[:50]}...' blobs={len(cell.blobs)}")
+        
+        text_lines = self._extract_text_lines_from_row(row_cells)
+        self.logger.debug(f"Извлечено {len(text_lines)} текстовых линий")
+        
+        # Если нет текста или только одна линия - не разделяем
+        if len(text_lines) <= 1:
+            self.logger.debug("Разделение не требуется: недостаточно текстовых линий")
+            return self._create_single_row(row_cells, start_row_index)
+        
+        self.logger.debug(f"Используем финансовые колонки: debit={financial_columns['debit']}, credit={financial_columns['credit']}")
+        
+        # Проверяем наличие множественных финансовых значений
+        has_multiple = self._has_multiple_financial_values(row_cells, financial_columns)
+        self.logger.debug(f"Есть множественные финансовые значения: {has_multiple}")
+        
+        if not has_multiple:
+            self.logger.debug("Разделение не требуется: нет множественных финансовых значений")
+            return self._create_single_row(row_cells, start_row_index)
+        
+        # Разделяем строку на основе финансовых значений
+        self.logger.info(f"Строка {debug_row_idx + 1} будет разделена на основе финансовых значений")
+        return self._split_row_by_financial_values(row_cells, text_lines, financial_columns, image, start_row_index, debug_row_idx)
+
+    def _has_multiple_financial_values(self, row_cells: List[Cell], financial_columns: dict) -> bool:
+        """Проверяет наличие множественных финансовых значений в строке."""
+        all_financial_cols = financial_columns['debit'] + financial_columns['credit']
+        self.logger.debug(f"Проверяем колонки: {all_financial_cols}")
+        
+        for cell in row_cells:
+            if cell.col in all_financial_cols:
+                values = self._extract_financial_values(cell.text)
+                self.logger.debug(f"  Ячейка col={cell.col}, text='{cell.text}' -> значения: {values}")
+                if len(values) > 1:
+                    self.logger.debug(f"    НАЙДЕНО множественное значение в колонке {cell.col}: {values}")
+                    return True
+        
+        self.logger.debug("Множественных финансовых значений не найдено")
+        return False
+
+    def _extract_financial_values(self, text: str) -> List[str]:
+        """Извлекает финансовые значения из текста."""
+        import re
+        
+        self.logger.debug(f"Извлекаем финансовые значения из: '{text}'")
+        
+        # Паттерн для российских финансовых значений
+        pattern = r'\b\d{1,3}(?:\s\d{3})*(?:,\d{1,2})?\b'
+        matches = re.findall(pattern, text)
+        self.logger.debug(f"  Найдены совпадения по паттерну: {matches}")
+        
+        # Фильтруем значения (больше 100 рублей)
+        valid_values = []
+        for match in matches:
+            try:
+                numeric_value = float(match.replace(' ', '').replace(',', '.'))
+                self.logger.debug(f"    '{match}' -> {numeric_value}")
+                if numeric_value >= 100:
+                    valid_values.append(match)
+                    self.logger.debug(f"      ПРИНЯТО: {match}")
+                else:
+                    self.logger.debug(f"      ОТКЛОНЕНО (< 100): {match}")
+            except ValueError as e:
+                self.logger.debug(f"      ОШИБКА парсинга '{match}': {e}")
+                continue
+        
+        self.logger.debug(f"  Итоговые финансовые значения: {valid_values}")
+        return valid_values
+
+    def _split_row_by_financial_values(self, row_cells: List[Cell], text_lines: List[dict], 
+                                     financial_columns: dict, image: np.ndarray, start_row_index: int, debug_row_idx: int) -> dict:
+        """Разделяет строку на основе финансовых значений."""
+        
+        self.logger.debug(f"=== Разделение строки {debug_row_idx + 1} ===")
+        
+        # Определяем логические строки на основе финансовых данных
+        logical_rows = self._create_logical_rows_from_financial_data(text_lines, financial_columns)
+        self.logger.debug(f"Создано {len(logical_rows)} логических строк")
+        
+        if len(logical_rows) <= 1:
+            self.logger.debug("Недостаточно логических строк для разделения")
+            return self._create_single_row(row_cells, start_row_index)
+        
+        # Вычисляем позиции разделения
+        split_positions = self._calculate_split_positions(logical_rows)
+        self.logger.debug(f"Позиции разделения: {split_positions}")
+        
+        # Создаем новые ячейки
+        result = self._create_split_cells(row_cells, split_positions, image, start_row_index, debug_row_idx)
+        self.logger.info(f"Строка {debug_row_idx + 1} разделена на {len(result['cells']) // len(row_cells)} подстрок")
+        
+        return result
+
+    def _create_logical_rows_from_financial_data(self, text_lines: List[dict], financial_columns: dict) -> List[List[dict]]:
+        """Создает логические строки на основе финансовых данных."""
+        all_financial_cols = financial_columns['debit'] + financial_columns['credit']
+        self.logger.debug(f"Анализируем финансовые колонки: {all_financial_cols}")
+        
+        # Фильтруем только линии с финансовыми данными
+        financial_lines = []
+        for line in text_lines:
+            cell = line['cell']
+            if cell.col in all_financial_cols:
+                has_financial = self._contains_financial_value(cell.text)
+                self.logger.debug(f"  Линия col={cell.col}, y_center={line['y_center']:.1f}, text='{cell.text}', has_financial={has_financial}")
+                if has_financial:
+                    financial_lines.append(line)
+        
+        self.logger.debug(f"Найдено {len(financial_lines)} линий с финансовыми данными")
+        
+        if len(financial_lines) <= 1:
+            self.logger.debug("Недостаточно финансовых линий для группировки")
+            return []
+        
+        # Группируем по вертикальной позиции
+        logical_rows = []
+        tolerance = 15  # увеличиваем толерантность
+        
+        current_row = [financial_lines[0]]
+        self.logger.debug(f"Начинаем группировку с толерантностью {tolerance} пикселей")
+        self.logger.debug(f"  Первая группа: y_center={financial_lines[0]['y_center']:.1f}")
+        
+        for i, line in enumerate(financial_lines[1:], 1):
+            last_y = current_row[-1]['y_center']
+            current_y = line['y_center']
+            distance = abs(current_y - last_y)
+            
+            self.logger.debug(f"  Линия {i}: y_center={current_y:.1f}, расстояние до предыдущей={distance:.1f}")
+            
+            if distance <= tolerance:
+                current_row.append(line)
+                self.logger.debug(f"    ДОБАВЛЕНО в текущую группу")
+            else:
+                logical_rows.append(current_row)
+                self.logger.debug(f"    НОВАЯ группа (группа {len(logical_rows)} закрыта с {len(current_row)} элементами)")
+                current_row = [line]
+        
+        if current_row:
+            logical_rows.append(current_row)
+            self.logger.debug(f"Последняя группа {len(logical_rows)} с {len(current_row)} элементами")
+        
+        self.logger.debug(f"Итого создано {len(logical_rows)} логических строк")
+        for i, row in enumerate(logical_rows):
+            y_positions = [line['y_center'] for line in row]
+            self.logger.debug(f"  Логическая строка {i+1}: {len(row)} элементов, y_positions={y_positions}")
+        
+        return logical_rows
+
+    def _create_split_cells(self, row_cells: List[Cell], split_positions: List[int], 
+                           image: np.ndarray, start_row_index: int, debug_row_idx: int) -> dict:
+        """Создает новые ячейки на основе позиций разделения."""
+        
+        row_y_min = min(cell.bbox.y1 for cell in row_cells)
+        row_y_max = max(cell.bbox.y2 for cell in row_cells)
+        
+        self.logger.debug(f"Границы исходной строки: y_min={row_y_min}, y_max={row_y_max}")
+        self.logger.debug(f"Позиции разделения: {split_positions}")
+        
+        # Создаем зоны разделения
+        y_boundaries = [row_y_min] + split_positions + [row_y_max]
+        zones = list(zip(y_boundaries[:-1], y_boundaries[1:]))
+        
+        self.logger.debug(f"Созданы зоны: {zones}")
+        
+        new_cells = []
+        
+        for zone_index, (y_start, y_end) in enumerate(zones):
+            current_row_index = start_row_index + zone_index
+            self.logger.debug(f"  Зона {zone_index+1}: y={y_start}-{y_end}, новая строка={current_row_index}")
+            
+            for cell_idx, cell in enumerate(row_cells):
+                # Находим blobs в текущей зоне
+                blobs_in_zone = [
+                    blob for blob in cell.blobs 
+                    if y_start <= (blob.y1 + blob.y2) / 2 < y_end
+                ]
+                
+                self.logger.debug(f"    Ячейка {cell_idx} (col={cell.col}): {len(blobs_in_zone)}/{len(cell.blobs)} blobs в зоне")
+                
+                # Создаем новую ячейку
+                new_bbox = BBox(cell.bbox.x1, y_start, cell.bbox.x2, y_end)
+                
+                if blobs_in_zone:
+                    # Извлекаем текст из зоны
+                    roi = image[y_start:y_end, cell.bbox.x1:cell.bbox.x2]
+                    text, _ = self.ocr.extract(roi)
+                    
+                    self.logger.debug(f"      OCR результат: '{text.strip()}'")
+                    
+                    new_cell = Cell(
+                        bbox=new_bbox,
+                        row=current_row_index,
+                        col=cell.col,
+                        text=text.strip(),
+                        blobs=blobs_in_zone,
+                        colspan=cell.colspan,
+                        rowspan=1
+                    )
+                else:
+                    self.logger.debug(f"      Пустая ячейка")
+                    new_cell = Cell(
+                        bbox=new_bbox,
+                        row=current_row_index,
+                        col=cell.col,
+                        text="",
+                        blobs=[],
+                        colspan=cell.colspan,
+                        rowspan=1
+                    )
+                
+                new_cells.append(new_cell)
+        
+        self.logger.debug(f"Создано {len(new_cells)} новых ячеек из {len(zones)} зон")
+        
+        return {
+            'cells': new_cells,
+            'next_row_index': start_row_index + len(zones)
+        }
 
     def _extract_paragraph_blocks(
         self,
@@ -207,7 +552,7 @@ class ScanExtractor(BaseExtractor):
             accepted_boxes.append(para_bbox)
 
         header_region_y_end = 0
-        footer_region_y_start = h_img
+        footer_region_y_start = h_img;
 
         if table_contours:
             # table_contours отсортированы по y в _process
@@ -257,7 +602,7 @@ class ScanExtractor(BaseExtractor):
         if len(xs) < 2:
             return []
         
-        # заплатка на случай отсутствия нижней горизонтальной линиии
+        # заплатка на случай отсутствия нижней горизонтальной линииииии
         # в конце таблицы
         # |--------|------|-------|
         # |        |      |       |
@@ -378,4 +723,95 @@ class ScanExtractor(BaseExtractor):
                         text='',       
                     )
                 )
-        return cells  
+        return cells
+
+    def _extract_text_lines_from_row(self, row_cells: List[Cell]) -> List[dict]:
+        """Извлекает все текстовые линии из ячеек строки с метаданными."""
+        text_lines = []
+        
+        for cell in row_cells:
+            cell_lines = self._get_lines_in_cell(cell)
+            for line_blobs in cell_lines:
+                text_lines.append({
+                    'blobs': line_blobs,
+                    'cell': cell,
+                    'y_center': sum(blob.y1 + blob.height / 2 for blob in line_blobs) / len(line_blobs)
+                })
+        
+        return sorted(text_lines, key=lambda x: x['y_center'])
+
+    def _identify_financial_columns(self, row_cells: List[Cell]) -> dict:
+        """Определяет финансовые колонки по содержимому или позиции."""
+        financial_cols = {'debit': [], 'credit': []}
+        
+        # Первый проход - поиск по ключевым словам в заголовках
+        for cell in row_cells:
+            text_lower = cell.text.lower()
+            if any(keyword in text_lower for keyword in ['дебет', 'debit', 'дебит']):
+                financial_cols['debit'].append(cell.col)
+            elif any(keyword in text_lower for keyword in ['кредит', 'credit']):
+                financial_cols['credit'].append(cell.col)
+        
+        # Если найдены заголовки, используем их
+        if financial_cols['debit'] or financial_cols['credit']:
+            self.logger.debug(f"Найдены финансовые колонки по заголовкам: debit={financial_cols['debit']}, credit={financial_cols['credit']}")
+            return financial_cols
+        
+        # Второй проход - ищем колонки с финансовыми значениями
+        cols_with_financial_data = []
+        for cell in row_cells:
+            if self._contains_financial_value(cell.text):
+                cols_with_financial_data.append(cell.col)
+        
+        if len(cols_with_financial_data) >= 2:
+            # Если найдено 2 или больше колонок с финансовыми данными
+            # Считаем первую - дебет, вторую - кредит
+            cols_with_financial_data.sort()
+            financial_cols['debit'] = [cols_with_financial_data[0]]
+            financial_cols['credit'] = [cols_with_financial_data[1]]
+            self.logger.debug(f"Найдены финансовые колонки по данным: debit={financial_cols['debit']}, credit={financial_cols['credit']}")
+            return financial_cols
+        
+        # Третий вариант - используем позицию (последние 2 колонки)
+        max_col = max(cell.col for cell in row_cells)
+        if max_col >= 1:
+            financial_cols['debit'] = [max_col - 1]
+            financial_cols['credit'] = [max_col]
+            self.logger.debug(f"Используем финансовые колонки по позиции: debit={financial_cols['debit']}, credit={financial_cols['credit']}")
+        
+        return financial_cols
+
+    def _create_single_row(self, row_cells: List[Cell], row_index: int) -> dict:
+        """Создает одну строку без разделения."""
+        cells = []
+        for cell in row_cells:
+            cell.row = row_index
+            cells.append(cell)
+        
+        return {
+            'cells': cells,
+            'next_row_index': row_index + 1
+        }
+
+    def _contains_financial_value(self, text: str) -> bool:
+        """Проверяет содержит ли текст финансовое значение."""
+        return len(self._extract_financial_values(text)) > 0
+
+    def _calculate_split_positions(self, logical_rows: List[List[dict]]) -> List[int]:
+        """Вычисляет Y-позиции для разделения строк."""
+        split_positions = []
+        
+        for i in range(len(logical_rows) - 1):
+            current_row_max_y = max(
+                max(blob.y2 for blob in line['blobs']) 
+                for line in logical_rows[i]
+            )
+            next_row_min_y = min(
+                min(blob.y1 for blob in line['blobs']) 
+                for line in logical_rows[i + 1]
+            )
+            
+            split_y = (current_row_max_y + next_row_min_y) // 2
+            split_positions.append(split_y)
+        
+        return split_positions

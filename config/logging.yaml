@@ -49,6 +49,7 @@ loggers:
     level: DEBUG
     handlers: ["console_stdout", "error_file_handler", "info_file_handler"]
     propagate: no
+
 root:
   level: INFO
   handlers: ["console_stdout", "console_stderr", "error_file_handler"]

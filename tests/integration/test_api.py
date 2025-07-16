@@ -6,9 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-from src.main import app
-
-from src.service import ProcessStatus 
+from src.presentation.app import app
+from src.domain.models.process import ProcessStatus
 from common_test import get_pdf_scan
 
 

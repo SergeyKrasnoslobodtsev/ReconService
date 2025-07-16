@@ -38,7 +38,7 @@ class Engine(ABC):
 
     def preprocess(self, gray: np.ndarray) -> np.ndarray:
 
-        border = 5
+        border = 0
         gray = cv2.copyMakeBorder(
             gray, border, border, border, border,
             borderType=cv2.BORDER_CONSTANT,

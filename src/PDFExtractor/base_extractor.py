@@ -195,6 +195,7 @@ class Table:
     bbox: BBox
     cells: List[Cell] = field(default_factory=list)
     start_page_num: Optional[int] = None
+    
     @property
     def average_blob_height(self) -> float:
         """
@@ -209,6 +210,27 @@ class Table:
         if not all_blobs_heights:
             return 12.0
         return sum(all_blobs_heights) / len(all_blobs_heights) + 6
+
+    @property
+    def rows(self) -> List[List[Cell]]:
+        """
+        Возвращает список строк таблицы, где каждая строка - это список ячеек.
+        Строки упорядочены по вертикали (от верхней к нижней).
+        """
+        if not self.cells:
+            return []
+
+        # Группируем ячейки по строкам
+        rows_dict = {}
+        for cell in self.cells:
+            row_key = cell.row
+            if row_key not in rows_dict:
+                rows_dict[row_key] = []
+            rows_dict[row_key].append(cell)
+
+        # Сортируем строки по ключу (номеру строки)
+        sorted_rows = sorted(rows_dict.items())
+        return [row_cells for _, row_cells in sorted_rows]
 
 class ParagraphType(enum.Enum):
     HEADER = 0
