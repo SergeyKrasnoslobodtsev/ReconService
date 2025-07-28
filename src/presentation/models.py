@@ -39,7 +39,7 @@ class StatusResponse(BaseModel):
 
 class ActEntryResponse(BaseModel):
     """Запись акта сверки для ответа"""
-    row_id: dict = Field(..., description="Идентификатор строки")
+    row_id: dict = Field(..., description="Идентификатор строки", example={"id_table": "идентификатор_таблицы", "id_row": "идентификатор_строки"})
     record: str = Field(..., description="Описание операции")
     value: float = Field(..., description="Значение записи")
     date: Optional[str] = Field(None, description="Дата операции")

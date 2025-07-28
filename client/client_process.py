@@ -84,7 +84,7 @@ class ReconServiceClient:
             "debit": debit_entries,
             "credit": credit_entries
         }
-        
+        # print(debit_entries)
         print(f"📊 Отправляем {len(debit_entries)} записей дебета и {len(credit_entries)} записей кредита")
         
         # Отправляем запрос на заполнение
@@ -138,6 +138,7 @@ class ReconServiceClient:
             for i, entry in enumerate(credit[:3]):
                 print(f"      {i+1}. Таблица {entry['row_id']['id_table']}, строка {entry['row_id']['id_row']}: {entry['value']}")
         print()
+        # print(result)
 
 def process_document(pdf_path: str, server_url: str = "http://127.0.0.1:8000"):
     """Полный цикл обработки документа"""

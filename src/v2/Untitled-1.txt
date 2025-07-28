@@ -1,0 +1,114 @@
+v2/
+├── api/                     # API слой (замена presentation)
+│   ├── controllers/
+│   │   └── reconciliation_controller.py
+│   ├── middleware/
+│   │   ├── error_handler.py
+│   │   ├── logging_middleware.py
+│   │   └── validation_middleware.py
+│   ├── routes/
+│   │   └── reconciliation_routes.py
+│   ├── schemas/             # Pydantic модели для API
+│   │   ├── requests/
+│   │   │   ├── create_process_request.py
+│   │   │   ├── fill_document_request.py
+│   │   │   └── get_status_request.py
+│   │   └── responses/
+│   │       ├── process_response.py
+│   │       ├── status_response.py
+│   │       └── error_response.py
+│   └── app.py               # FastAPI app setup
+│
+├── application/             # Бизнес логика приложения
+│   ├── commands/            # Command pattern для операций
+│   │   ├── create_process_command.py
+│   │   ├── fill_document_command.py
+│   │   └── get_status_command.py
+│   ├── queries/             # Query pattern для чтения
+│   │   └── process_status_query.py
+│   ├── handlers/            # Command/Query handlers
+│   │   ├── create_process_handler.py
+│   │   ├── fill_document_handler.py
+│   │   └── process_status_handler.py
+│   ├── services/            # Application services
+│   │   ├── document_service.py
+│   │   ├── process_orchestrator.py
+│   │   └── validation_service.py
+│   └── interfaces/          # Порты для внешних зависимостей
+│       ├── document_processor.py
+│       ├── process_repository.py
+│       └── background_executor.py
+│
+├── domain/                  # Доменная модель (чистая)
+│   ├── entities/            # Основные сущности
+│   │   ├── process.py
+│   │   ├── document.py
+│   │   └── reconciliation_act.py
+│   ├── value_objects/       # Объекты значений
+│   │   ├── process_id.py
+│   │   ├── organization.py
+│   │   ├── period.py
+│   │   └── act_entry.py
+│   ├── enums/              # Перечисления
+│   │   ├── process_status.py
+│   │   └── document_type.py
+│   ├── events/             # Доменные события
+│   │   ├── process_created.py
+│   │   ├── document_processed.py
+│   │   └── document_filled.py
+│   ├── exceptions/         # Доменные исключения
+│   │   ├── process_exceptions.py
+│   │   └── document_exceptions.py
+│   └── services/           # Доменные сервисы
+│       ├── process_validator.py
+│       └── document_analyzer.py
+│
+├── infrastructure/         # Внешние адаптеры
+│   ├── adapters/
+│   │   ├── document_processor_adapter.py
+│   │   ├── background_executor_adapter.py
+│   │   └── file_storage_adapter.py
+│   ├── repositories/
+│   │   ├── process_repository.py
+│   │   └── document_repository.py
+│   ├── external/           # Внешние сервисы
+│   │   ├── ner/
+│   │   │   ├── ner_client.py
+│   │   │   └── organization_extractor.py
+│   │   └── pdf/
+│   │       ├── extractor_factory.py
+│   │       ├── native_extractor.py
+│   │       └── scan_extractor.py
+│   ├── persistence/        # Хранение данных
+│   │   ├── memory_store.py
+│   │   └── file_store.py
+│   └── config/
+│       ├── settings.py
+│       └── dependency_injection.py
+│
+├── shared/                 # Общие компоненты
+│   ├── exceptions/
+│   │   ├── base_exception.py
+│   │   ├── business_exception.py
+│   │   └── technical_exception.py
+│   ├── logging/
+│   │   ├── logger_factory.py
+│   │   └── structured_logger.py
+│   ├── monitoring/
+│   │   ├── metrics.py
+│   │   └── health_check.py
+│   └── utils/
+│       ├── datetime_utils.py
+│       ├── validation_utils.py
+│       └── encoding_utils.py
+│
+└── tests/                  # Тесты
+    ├── unit/
+    │   ├── domain/
+    │   ├── application/
+    │   └── infrastructure/
+    ├── integration/
+    │   ├── api/
+    │   └── repositories/
+    └── fixtures/
+        └── test_data/
