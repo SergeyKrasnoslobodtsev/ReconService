@@ -8,7 +8,7 @@ import numpy as np
 import pytesseract
 
 from PIL import Image
-
+import re
 from .image_processing import detected_text_blocks_lines
 class OcrEngine(enum.Enum):
     TESSERACT = 0
@@ -49,8 +49,16 @@ class Engine(ABC):
 
 class TesseractEngine(Engine):
     def __init__(self):
-        
         self.cfg = r'--oem 1 --psm 4 -l rus+eng'
+
+    def _postprocess_text(self, text: str) -> str:
+        """Исправляет частые ошибки OCR"""
+        # Заменяем $ в начале строки и после пробела на 8
+        text = re.sub(r'(^|\s)\$(\d)', r'\g<1>8\g<2>', text)
+        
+        # $ между цифрами
+        text = re.sub(r'(\d)\$(\d)', r'\g<1>8\g<2>', text)
+        return text
 
     def extract_text(self, image: np.ndarray) -> Tuple[str, List[Tuple[int, int, int, int]]]:
         image = self.preprocess(image)
@@ -67,7 +75,7 @@ class TesseractEngine(Engine):
                 boxes.append((x, y, w, h))
 
         text = " ".join(words)
-
+        text = self._postprocess_text(text)
         #boxes = self.detected_text(image) 
         return (text, boxes)
     

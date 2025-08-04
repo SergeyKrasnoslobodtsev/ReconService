@@ -28,8 +28,8 @@ class OrganizationProcessor:
             'ФГУП': 'федеральное государственное унитарное предприятие',
         }
         self.pullenti_formal_types = [ft.lower() for ft in self.org_types_full_names_map.values()]
-        self.seller_key_words = ['продавец', 'с одной стороны', 'между']
-        self.buyer_key_words = ['покупатель', 'с другой стороны']
+        self.seller_key_words = ['продавец', 'с одной стороны', 'между', 'от продавца']
+        self.buyer_key_words = ['покупатель', 'с другой стороны', 'от покупателя']
         self.org_ontos = self._configure_org_ontology()
 
     def _clean_organization_name(self, raw_name: str) -> str:
@@ -199,7 +199,7 @@ class OrganizationProcessor:
                 "str_repr": display_name,  # Используем более корректное название
                 "pullenti_str_repr": current_org_str,  # Сохраняем оригинальное от Pullenti для отладки
                 "canonical_names": sorted(list(set(cn for cn in can_names if cn))),
-                "window": txt[occ.end_char : min(occ.end_char + 70, len(txt))].lower(),
+                "window": txt[max(0, occ.begin_char - 50):min(occ.end_char + 70, len(txt))].lower(),
                 "is_linked_to_custom_ontology": is_linked_to_custom_ontology, 
                 "role": None
             })

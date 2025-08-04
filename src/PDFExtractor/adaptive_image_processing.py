@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import logging
 
+from PIL import Image
+
 class AdaptiveImageProcessing:
     def __init__(self):
         self.logger = logging.getLogger("app." + __class__.__name__)
@@ -78,7 +80,7 @@ class AdaptiveImageProcessing:
         #     enhanced = clahe.apply(gray)
         #     cleaned = cv2.adaptiveThreshold(enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
         #                                 cv2.THRESH_BINARY, 15, 10)
-    
+        # Image.fromarray(cleaned).show()
         return cleaned
 
     def _process_low_contrast(self, gray: np.ndarray, metrics: dict) -> np.ndarray:
