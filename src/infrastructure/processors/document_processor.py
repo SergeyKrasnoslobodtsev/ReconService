@@ -84,10 +84,11 @@ class DocumentProcessor(IDocumentProcessor):
                     success=False,
                     error_message="Не удалось извлечь данные кредита продавца"
                 )
-            
-            # ИСПРАВЛЯЕМ - правильно сохраняем таблицы
+            last_page_with_table = document_structure.get_last_page_number_table()
+            self._logger.debug(f"Последняя страница с таблицей: {last_page_with_table}")
             document_structure_dict = {
                 'tables': document_structure.get_tables(),  # Сохраняем сами объекты таблиц
+                'last_page_with_table': last_page_with_table,
                 'metadata': {
                     'pages_count': len(getattr(document_structure, 'pages', [])),
                     'extracted_at': str(datetime.now())

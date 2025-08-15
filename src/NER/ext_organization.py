@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Optional
 import logging
 from dataclasses import dataclass, field
 import re
@@ -21,7 +22,7 @@ class Organization(BaseModel):
     """Финальная, публичная модель организации."""
     name: str
     type: list[str]
-    type_abbr: str | None # Добавляем поле для аббревиатуры
+    type_abbr: Optional[str] = None  # Добавляем поле для аббревиатуры
     name_raw: str
     role: Role
 
@@ -64,7 +65,7 @@ class ExtOrganization:
         # Добавляем шаблон для нормализации пробелов и переносов строк
         self._normalize_pattern = re.compile(r'\s+')
 
-    def _get_abbr_type(self, types: list[str]) -> str | None:
+    def _get_abbr_type(self, types: list[str]) -> Optional[str]:
         """Находит самую короткую аббревиатуру в списке типов."""
         if not types:
             return None

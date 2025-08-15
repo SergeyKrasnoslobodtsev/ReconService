@@ -195,6 +195,7 @@ class Table:
     bbox: BBox
     cells: List[Cell] = field(default_factory=list)
     start_page_num: Optional[int] = None
+    end_page_num: Optional[int] = None
     
     @property
     def average_blob_height(self) -> float:
@@ -258,6 +259,13 @@ class Document:
     pages: List[Page] = field(default_factory=list)
     page_count: int = 0
 
+    def get_last_page_number_table(self) -> int:
+        '''Получаем номер последней страницы с таблицей'''
+        tables = self.get_tables()
+        if not tables:
+            return -1 
+        return max(table.start_page_num for table in tables if table.start_page_num is not None)
+
     def get_all_text_paragraphs(self) -> str:
         '''Получем текс параграфов со всех страниц документа и представим его в виде строки'''
         full_text = []
@@ -283,148 +291,171 @@ class Document:
 
     def get_tables(self) -> List[Table]:
         """
-        Возвращает список логических таблиц из документа.
-        Таблицы объединяются, если между ними (даже на разных страницах) нет ЗНАЧИМЫХ параграфов
-        (колонтитулы игнорируются).
-        Для объединения таблиц на разных страницах, количество их столбцов должно совпадать.
-        Таблицы на одной странице всегда считаются разными логическими таблицами, если они являются
-        отдельными объектами Table.
-        Каждый элемент в списке - это объект Table, представляющий одну логическую таблицу.
+        Returns all tables in the document that contain at least one cell.
+        return (table for page in self.pages for table in page.tables if table.cells)
+        This method iterates through all pages and collects tables where the 'cells' list is not empty.
         """
-        logical_tables: List[Table] = []
+
+        tables = []
+        for page in self.pages:
+            for table in page.tables:
+                # Если таблица не пуста
+                if table.cells:
+                    # start_page_num — минимальный original_page_num среди ячеек
+                    # end_page_num — максимальный original_page_num среди ячеек
+                    page_nums = [cell.original_page_num if cell.original_page_num is not None else page.num_page for cell in table.cells]
+                    table.start_page_num = min(page_nums) if page_nums else page.num_page
+                    table.end_page_num = max(page_nums) if page_nums else page.num_page
+                    tables.append(table)
+        return tables
+        # """
+        # Возвращает список логических таблиц из документа.
+        # Таблицы объединяются, если между ними (даже на разных страницах) нет ЗНАЧИМЫХ параграфов
+        # (колонтитулы игнорируются).
+        # Для объединения таблиц на разных страницах, количество их столбцов должно совпадать.
+        # Таблицы на одной странице всегда считаются разными логическими таблицами, если они являются
+        # отдельными объектами Table.
+        # Каждый элемент в списке - это объект Table, представляющий одну логическую таблицу.
+        # """
+
         
-        all_elements = []
-        for page_data in self.pages:
-            for p_obj in page_data.paragraphs:
-                all_elements.append({
-                    'type': 'paragraph', 
-                    'obj': p_obj,
-                    'page_num': page_data.num_page, 
-                    'y1': p_obj.bbox.y1
-                })
-            for t_obj in page_data.tables:
-                if t_obj.cells: 
-                    all_elements.append({
-                        'type': 'table', 
-                        'obj': t_obj,
-                        'page_num': page_data.num_page, 
-                        'y1': t_obj.bbox.y1
-                    })
+
+        # logical_tables: List[Table] = []
         
-        all_elements.sort(key=lambda x: (x['page_num'], x['y1']))
+        # all_elements = []
+        # for page_data in self.pages:
+        #     for p_obj in page_data.paragraphs:
+        #         all_elements.append({
+        #             'type': 'paragraph', 
+        #             'obj': p_obj,
+        #             'page_num': page_data.num_page, 
+        #             'y1': p_obj.bbox.y1
+        #         })
+        #     for t_obj in page_data.tables:
+        #         if t_obj.cells: 
+        #             all_elements.append({
+        #                 'type': 'table', 
+        #                 'obj': t_obj,
+        #                 'page_num': page_data.num_page, 
+        #                 'y1': t_obj.bbox.y1
+        #             })
+        
+        # all_elements.sort(key=lambda x: (x['page_num'], x['y1']))
 
-        current_accumulated_cells: List[Cell] = []
-        current_row_offset: int = 0
-        first_bbox_of_current_logical_table: Optional[BBox] = None
-        # Page number of the first physical table fragment of the current logical table
-        current_logical_table_start_page_num: Optional[int] = None 
-        last_fragment_page_num: int = -1 
-        current_logical_table_column_count: int = -1
+        # current_accumulated_cells: List[Cell] = []
+        # current_row_offset: int = 0
+        # first_bbox_of_current_logical_table: Optional[BBox] = None
+        # # Page number of the first physical table fragment of the current logical table
+        # current_logical_table_start_page_num: Optional[int] = None 
+        # last_fragment_page_num: int = -1 
+        # current_logical_table_column_count: int = -1
 
-        for element_data in all_elements:
-            el_type = element_data['type']
-            el_obj = element_data['obj']
-            el_page_num = element_data['page_num']
+        # for element_data in all_elements:
+        #     el_type = element_data['type']
+        #     el_obj = element_data['obj']
+        #     el_page_num = element_data['page_num']
 
-            if el_type == 'paragraph':
-                para: Paragraph = el_obj
-                if para.type != ParagraphType.HEADER and para.type != ParagraphType.FOOTER:
-                    if current_accumulated_cells:
-                        if first_bbox_of_current_logical_table is not None:
-                            logical_table = Table(
-                                bbox=first_bbox_of_current_logical_table,
-                                cells=list(current_accumulated_cells),
-                                start_page_num=current_logical_table_start_page_num
-                            )
-                            logical_tables.append(logical_table)
+        #     if el_type == 'paragraph':
+        #         para: Paragraph = el_obj
+        #         if para.type != ParagraphType.HEADER and para.type != ParagraphType.FOOTER:
+        #             if current_accumulated_cells:
+        #                 if first_bbox_of_current_logical_table is not None:
+        #                     logical_table = Table(
+        #                         bbox=first_bbox_of_current_logical_table,
+        #                         cells=list(current_accumulated_cells),
+        #                         start_page_num=current_logical_table_start_page_num
+        #                     )
+        #                     logical_tables.append(logical_table)
                         
-                        current_accumulated_cells.clear()
-                        current_row_offset = 0
-                        first_bbox_of_current_logical_table = None
-                        current_logical_table_start_page_num = None
-                        last_fragment_page_num = -1
-                        current_logical_table_column_count = -1
+        #                 current_accumulated_cells.clear()
+        #                 current_row_offset = 0
+        #                 first_bbox_of_current_logical_table = None
+        #                 current_logical_table_start_page_num = None
+        #                 last_fragment_page_num = -1
+        #                 current_logical_table_column_count = -1
             
-            elif el_type == 'table':
-                table_fragment: Table = el_obj
-                if not table_fragment.cells:
-                    continue
+        #     elif el_type == 'table':
+        #         table_fragment: Table = el_obj
+        #         if not table_fragment.cells:
+        #             continue
 
-                fragment_column_count = self._get_table_column_count(table_fragment)
+        #         fragment_column_count = self._get_table_column_count(table_fragment)
 
-                starts_new_logical_table = False
-                if not current_accumulated_cells:
-                    starts_new_logical_table = True
-                else:
-                    if el_page_num == last_fragment_page_num:
-                        starts_new_logical_table = True
-                    elif el_page_num > last_fragment_page_num:
-                        if (current_logical_table_column_count > 0 and
-                                fragment_column_count > 0 and
-                                current_logical_table_column_count != fragment_column_count):
-                            starts_new_logical_table = True
+        #         starts_new_logical_table = False
+        #         if not current_accumulated_cells:
+        #             starts_new_logical_table = True
+        #         else:
+        #             if el_page_num == last_fragment_page_num:
+        #                 starts_new_logical_table = True
+        #             elif el_page_num > last_fragment_page_num:
+        #                 if (current_logical_table_column_count > 0 and
+        #                         fragment_column_count > 0 and
+        #                         current_logical_table_column_count != fragment_column_count):
+        #                     starts_new_logical_table = True
                 
-                if starts_new_logical_table:
-                    if current_accumulated_cells and first_bbox_of_current_logical_table is not None:
-                        logical_table = Table(
-                            bbox=first_bbox_of_current_logical_table,
-                            cells=list(current_accumulated_cells),
-                            start_page_num=current_logical_table_start_page_num
-                        )
-                        logical_tables.append(logical_table)
+        #         if starts_new_logical_table:
+        #             if current_accumulated_cells and first_bbox_of_current_logical_table is not None:
+        #                 logical_table = Table(
+        #                     bbox=first_bbox_of_current_logical_table,
+        #                     cells=list(current_accumulated_cells),
+        #                     start_page_num=current_logical_table_start_page_num,
+        #                     end_page_num=last_fragment_page_num 
+        #                 )
+        #                 logical_tables.append(logical_table)
 
-                    current_accumulated_cells.clear()
-                    current_row_offset = 0 
-                    first_bbox_of_current_logical_table = table_fragment.bbox
-                    current_logical_table_start_page_num = el_page_num 
-                    current_logical_table_column_count = fragment_column_count
+        #             current_accumulated_cells.clear()
+        #             current_row_offset = 0 
+        #             first_bbox_of_current_logical_table = table_fragment.bbox
+        #             current_logical_table_start_page_num = el_page_num 
+        #             current_logical_table_column_count = fragment_column_count
                     
-                    max_rows_in_this_fragment = 0
-                    for cell in table_fragment.cells:
-                        adjusted_cell = Cell(
-                            bbox=cell.bbox,
-                            row=cell.row + current_row_offset, 
-                            col=cell.col,
-                            colspan=cell.colspan,
-                            rowspan=cell.rowspan,
-                            text=cell.text,
-                            blobs=list(cell.blobs),
-                            original_page_num=el_page_num # Сохраняем исходную страницу ячейки
-                        )
-                        current_accumulated_cells.append(adjusted_cell)
-                        max_rows_in_this_fragment = max(max_rows_in_this_fragment, cell.row + cell.rowspan)
+        #             max_rows_in_this_fragment = 0
+        #             for cell in table_fragment.cells:
+        #                 adjusted_cell = Cell(
+        #                     bbox=cell.bbox,
+        #                     row=cell.row + current_row_offset, 
+        #                     col=cell.col,
+        #                     colspan=cell.colspan,
+        #                     rowspan=cell.rowspan,
+        #                     text=cell.text,
+        #                     blobs=list(cell.blobs),
+        #                     original_page_num=el_page_num # Сохраняем исходную страницу ячейки
+        #                 )
+        #                 current_accumulated_cells.append(adjusted_cell)
+        #                 max_rows_in_this_fragment = max(max_rows_in_this_fragment, cell.row + cell.rowspan)
                     
-                    current_row_offset = max_rows_in_this_fragment
-                    last_fragment_page_num = el_page_num
+        #             current_row_offset = max_rows_in_this_fragment
+        #             last_fragment_page_num = el_page_num
 
-                else: 
-                    max_rows_in_this_fragment = 0
-                    for cell in table_fragment.cells:
-                        adjusted_cell = Cell(
-                            bbox=cell.bbox,
-                            row=cell.row + current_row_offset, 
-                            col=cell.col,
-                            colspan=cell.colspan,
-                            rowspan=cell.rowspan,
-                            text=cell.text,
-                            blobs=list(cell.blobs),
-                            original_page_num=el_page_num # Сохраняем исходную страницу ячейки
-                        )
-                        current_accumulated_cells.append(adjusted_cell)
-                        max_rows_in_this_fragment = max(max_rows_in_this_fragment, cell.row + cell.rowspan)
+        #         else: 
+        #             max_rows_in_this_fragment = 0
+        #             for cell in table_fragment.cells:
+        #                 adjusted_cell = Cell(
+        #                     bbox=cell.bbox,
+        #                     row=cell.row + current_row_offset, 
+        #                     col=cell.col,
+        #                     colspan=cell.colspan,
+        #                     rowspan=cell.rowspan,
+        #                     text=cell.text,
+        #                     blobs=list(cell.blobs),
+        #                     original_page_num=el_page_num # Сохраняем исходную страницу ячейки
+        #                 )
+        #                 current_accumulated_cells.append(adjusted_cell)
+        #                 max_rows_in_this_fragment = max(max_rows_in_this_fragment, cell.row + cell.rowspan)
                     
-                    current_row_offset += max_rows_in_this_fragment
-                    last_fragment_page_num = el_page_num
+        #             current_row_offset += max_rows_in_this_fragment
+        #             last_fragment_page_num = el_page_num
 
-        if current_accumulated_cells and first_bbox_of_current_logical_table is not None:
-            logical_table = Table(
-                bbox=first_bbox_of_current_logical_table,
-                cells=list(current_accumulated_cells),
-                start_page_num=current_logical_table_start_page_num
-            )
-            logical_tables.append(logical_table)
+        # if current_accumulated_cells and first_bbox_of_current_logical_table is not None:
+        #     logical_table = Table(
+        #         bbox=first_bbox_of_current_logical_table,
+        #         cells=list(current_accumulated_cells),
+        #         start_page_num=current_logical_table_start_page_num,
+        #         end_page_num=last_fragment_page_num
+        #     )
+        #     logical_tables.append(logical_table)
             
-        return logical_tables
+        # return logical_tables
 
     def to_excel(self, file_path: str):
         """

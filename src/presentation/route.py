@@ -161,6 +161,7 @@ class ReconciliationController:
                 # Преобразуем request в DTO
                 dto = FillDocumentDto(
                     process_id=request.process_id,
+                    comments=request.comments,
                     debit_entries=[entry.model_dump() for entry in request.debit],
                     credit_entries=[entry.model_dump() for entry in request.credit]
                 )

@@ -194,14 +194,13 @@ def filter_small_and_isolated(mask: np.ndarray, intersec: np.ndarray, min_length
 
 def create_structuring_element(image: np.ndarray, scale: int, type: int = 0):
     """Создает структурный элемент для морфологических операций."""
-    match type:
-        case 0:
-            size = image.shape[0] // scale
-            element = cv2.getStructuringElement(cv2.MORPH_RECT, (1, size))
-        case 1:
-            size = image.shape[1] // scale
-            element = cv2.getStructuringElement(cv2.MORPH_RECT, (size, 1))
-        case _:
-            raise ValueError("Ожидается 0 или 1 для типа структурного элемента")
+    if type == 0:
+        size = image.shape[0] // scale
+        element = cv2.getStructuringElement(cv2.MORPH_RECT, (1, size))
+    elif type == 1:
+        size = image.shape[1] // scale
+        element = cv2.getStructuringElement(cv2.MORPH_RECT, (size, 1))
+    else:
+        raise ValueError("Ожидается 0 или 1 для типа структурного элемента")
     
     return element, size

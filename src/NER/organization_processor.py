@@ -199,7 +199,7 @@ class OrganizationProcessor:
                 "str_repr": display_name,  # Используем более корректное название
                 "pullenti_str_repr": current_org_str,  # Сохраняем оригинальное от Pullenti для отладки
                 "canonical_names": sorted(list(set(cn for cn in can_names if cn))),
-                "window": txt[max(0, occ.begin_char - 50):min(occ.end_char + 70, len(txt))].lower(),
+                "window": txt[max(0, occ.begin_char - 50):min(occ.end_char + 100, len(txt))].lower(),
                 "is_linked_to_custom_ontology": is_linked_to_custom_ontology, 
                 "role": None
             })
@@ -279,16 +279,26 @@ class OrganizationProcessor:
     def _assign_roles_by_keywords_and_rusal_logic(self, orgs_list: list[dict]) -> None:
         for org in orgs_list:
             win_text = org['window']
+
+            # Назначение по ключевым словам
             if any(kw in win_text for kw in self.seller_key_words):
                 org['role'] = 'продавец'
             elif any(kw in win_text for kw in self.buyer_key_words): 
                 org['role'] = 'покупатель'
-            
-            if org['role'] is None and \
-               (any("РУСАЛ" in cn for cn in org.get('canonical_names', [])) or \
-                "РУСАЛ" in org['str_repr'].split(',')[0].strip().upper()):
-                org['role'] = 'покупатель'
-                self.logger.debug(f"'{org['str_repr']}' -> 'покупатель' (РУСАЛ logic).")
+
+            # Проверка логики РУСАЛ — покупатель
+            is_rusal = (
+                any("РУСАЛ" in cn for cn in org.get('canonical_names', [])) or 
+                "РУСАЛ" in org['str_repr'].split(',')[0].strip().upper()
+            )
+
+            if is_rusal:
+                if org['role'] != 'покупатель':
+                    prev = org['role']
+                    org['role'] = 'покупатель'
+                    self.logger.debug(
+                        f"'{org['str_repr']}' -> 'покупатель' (РУСАЛ logic override, previous: {prev})"
+                    )
 
     def _assign_mutual_roles(self, orgs_list: list[dict]) -> None:
         # Найти организации с уже назначенными ролями

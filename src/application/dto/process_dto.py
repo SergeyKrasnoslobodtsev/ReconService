@@ -32,6 +32,7 @@ class CreateProcessDto(BaseModel):
 class FillDocumentDto(BaseModel):
     """DTO для заполнения документа"""
     process_id: str = Field(..., description="Идентификатор процесса")
+    comments: Optional[str] = Field(None, description="Комментарии к акту сверки")
     debit_entries: List[dict] = Field(..., description="Записи дебета")
     credit_entries: List[dict] = Field(..., description="Записи кредита")
 

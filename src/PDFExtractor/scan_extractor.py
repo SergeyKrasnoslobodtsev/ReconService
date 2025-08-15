@@ -53,8 +53,8 @@ class ScanExtractor(BaseExtractor):
         contours = find_max_contours(mask, max=5)
         self.logger.debug(f'Найдено {len(contours)} таблиц на странице')
         # находим абзацы
+        
         paragraphs = self._extract_paragraph_blocks(cleaned, contours, margin=2)
-
         tables: List[Table] = []
         for x, y, w, h in contours:
             roi_v = v_lines[y:y+h, x:x+w]
@@ -79,14 +79,22 @@ class ScanExtractor(BaseExtractor):
             #  text  |    0.00   |
             # -------|-----------|
             cells = self._grid_table(x, y, roi_v, roi_h, span_mode=1)
-
-            tables.append(
-                Table(
-                    bbox=BBox(x, y, x+w, y+h),
-                    cells=cells, 
-                )
+            if len(cells) > 1:
+                tables.append(
+                    Table(
+                        bbox=BBox(x, y, x+w, y+h),
+                        cells=cells, 
+                    )
             )
-        
+            else:
+                paragraphs.append(
+                    Paragraph(
+                        bbox=BBox(x, y, x+w, y+h),
+                        text='',
+                        paragraph_type=ParagraphType.FOOTER
+                    )
+                )
+
         # cleaned = gray
         # посмотри что получилось
         # Image.fromarray(cleaned).show()
@@ -515,7 +523,7 @@ class ScanExtractor(BaseExtractor):
                 cv2.rectangle(gray_for_text_detection, (x, y), (x + w, y + h), (255), -1) # Закрасить белым
 
         # 3. На модифицированном изображении получить маску текстовых регионов
-        text_mask = detected_text(gray_for_text_detection, 50, 30)
+        text_mask = detected_text(gray_for_text_detection, 70, 30)
         # Image.fromarray(text_mask).show()
 
         # 4. Найти контуры абзацев
@@ -552,7 +560,7 @@ class ScanExtractor(BaseExtractor):
             accepted_boxes.append(para_bbox)
 
         header_region_y_end = 0
-        footer_region_y_start = h_img;
+        footer_region_y_start = h_img
 
         if table_contours:
             # table_contours отсортированы по y в _process

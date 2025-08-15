@@ -1,13 +1,10 @@
-import logging
-from typing import Any, List, Optional, Tuple
-import cv2
-import numpy as np
+from typing import List, Tuple
 from typing import List
 from io import BytesIO
 import pymupdf
 from PIL import Image, ImageDraw, ImageFont
 
-from .PDFExtractor.base_extractor import Cell, InsertionPosition, Table, BBox
+from .PDFExtractor.base_extractor import Cell, Table, BBox
 
 _DEFAULT_DPI = 300
 
@@ -350,3 +347,26 @@ def draw_text_to_cell_with_context(image: Image.Image, cell: Cell, new_text: str
 def draw_text_to_cell(image: Image.Image, cell: Cell, new_text: str, font_size: int = 24) -> Image.Image:
     """Оригинальная функция для обратной совместимости."""
     return draw_text_to_cell_with_context(image, cell, new_text, font_size, [cell])
+
+def draw_comments_to_bottom_right(image: Image.Image, bbox_table: BBox, comments: str, font_size: int = 24) -> Image.Image:
+    """Рисует комментарии в правом нижнем углу страницы."""
+    draw = ImageDraw.Draw(image)
+    try:
+        font = ImageFont.truetype("arial.ttf", font_size)
+    except IOError:
+        font = ImageFont.load_default()
+
+    # Получаем размеры комментариев
+    text_bbox_pil = draw.textbbox((0, 0), comments, font=font)
+    text_width = text_bbox_pil[2] - text_bbox_pil[0]
+    text_height = text_bbox_pil[3] - text_bbox_pil[1]
+
+    # Позиционируем текст в правом нижнем углу ячейки четверть от высоты страницы
+    final_x = image.width - text_width - 10 
+    final_y = (image.height - image.height // 4)
+    # Опустим текст если наезжает на таблицу
+    if bbox_table:
+        if final_x < bbox_table.x2 and final_y < bbox_table.y2:
+            final_y = bbox_table.y2 + 5
+    draw.text((final_x, final_y), comments, fill="black", font=font)
+    return image

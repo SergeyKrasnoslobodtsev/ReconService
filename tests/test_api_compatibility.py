@@ -6,12 +6,12 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from src.v2.domain.value_objects.process_id import ProcessId
-from src.v2.domain.value_objects.organization import Organization
-from src.v2.domain.value_objects.period import Period
-from src.v2.domain.value_objects.act_entry import ActEntry, RowIdentifier
-from src.v2.domain.entities.process import ReconciliationProcess, DocumentStructure
-from src.v2.domain.enums.process_status import ProcessStatus
+from src.domain.models.process import DocumentStructure, ProcessStatus, ReconciliationProcess
+from src.domain.value_objects.process_id import ProcessId
+from src.domain.value_objects.organization import Organization
+from src.domain.value_objects.period import Period
+from src.domain.value_objects.act_entry import  ActEntry, RowIdentifier
+from src.domain.value_objects.process_id import ProcessId
 
 def test_api_compatibility():
     print("=== Тестирование совместимости с API ===")

@@ -116,13 +116,13 @@ class PaddleOcrEngine(Engine):
 
 class OCR:
     def __init__(self, ocr_engine:Optional[OcrEngine]):
-        match(ocr_engine):
-            case ocr_engine.EASYOCR:
-                self.ocr = EasyOcrEngine()
-            case ocr_engine.PADDLEOCR:
-                self.ocr = PaddleOcrEngine()
-            case _: 
-                self.ocr = TesseractEngine()
+
+        if ocr_engine == OcrEngine.EASYOCR:
+            self.ocr = EasyOcrEngine()
+        elif ocr_engine == OcrEngine.PADDLEOCR:
+            self.ocr = PaddleOcrEngine()
+        else:
+            self.ocr = TesseractEngine()
 
     def extract(self, image: np.ndarray) -> Tuple[str, List[Tuple[int, int, int, int]]]:
         return self.ocr.extract_text(image)

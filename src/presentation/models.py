@@ -23,6 +23,7 @@ class ActEntryRequest(BaseModel):
 class FillReconciliationActRequest(BaseModel):
     """Запрос для заполнения акта сверки"""
     process_id: str = Field(..., description="Идентификатор процесса")
+    comments: Optional[str] = Field(None, description="Комментарии к акту сверки")
     debit: List[ActEntryRequest] = Field(..., description="Записи дебета")
     credit: List[ActEntryRequest] = Field(..., description="Записи кредита")
 

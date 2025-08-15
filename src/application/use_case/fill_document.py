@@ -1,12 +1,18 @@
 import logging
 from typing import List, Dict, Any
 
+from ...domain.models.process import DocumentStructure
+
 from ..dto.process_dto import FillDocumentDto
 from ...domain.value_objects.process_id import ProcessId
 from ...domain.interfaces.process_repository import IProcessRepository
 from ...exceptions import ProcessIdNotFoundError
 from ...NER.ner_service import NERService
-from ...pdf_renderer import convert_to_pil, convert_to_bytes, draw_text_to_cell_with_context, get_row_context
+from ...pdf_renderer import (convert_to_pil, 
+                             convert_to_bytes, 
+                             draw_text_to_cell_with_context, 
+                             get_row_context,
+                             draw_comments_to_bottom_right)
 
 
 class FillDocumentUseCase:
@@ -38,15 +44,16 @@ class FillDocumentUseCase:
             
             # Получаем структуру документа
             document_structure = process.document_structure
-            if not document_structure:
-                raise ValueError("Структура документа не найдена")
-            
+            if isinstance(document_structure, dict):
+                document_structure = DocumentStructure(**document_structure)
+
+            print(f'Last page with table: {document_structure.last_page_with_table}')
             # Получаем изображения страниц
             images = convert_to_pil(document_structure.pdf_bytes)
             tables = self._get_tables_from_structure(document_structure)
             render_images = images.copy()
             
-            # Получаем данные покупателя для сравнения - ИСПРАВЛЯЕМ ЭТОТ МЕТОД
+            # Получаем данные покупателя для сравнения
             buyer_data = self._extract_buyer_data(tables, process.buyer.raw_data)
             
             # Заполняем ячейки
@@ -57,7 +64,8 @@ class FillDocumentUseCase:
                 tables=tables,
                 render_images=render_images
             )
-            
+            self._fill_comments_last_page(render_images, document_structure.last_page_with_table, tables, dto.comments)
+            self._logger.info(f"Последняя страница с таблицей: {document_structure.last_page_with_table} для процесса: {process_id}")
             self._logger.info(f"Заполнено {filled_count} ячеек для процесса: {process_id}")
             
             # Конвертируем обратно в PDF
@@ -76,7 +84,13 @@ class FillDocumentUseCase:
                 self._logger.error(f"Не удалось обновить статус процесса: {update_error}")
             
             raise RuntimeError(f"Ошибка при заполнении документа: {str(e)}")
-    
+
+    def _fill_comments_last_page(self, render_images: List[Any], last_page_with_table: int, tables: List[Any], comments: str) -> None:
+        """Заполняет комментарии на последней странице таблиц"""
+        
+        img = render_images[last_page_with_table]
+        render_images[last_page_with_table] = draw_comments_to_bottom_right(img, tables[0].bbox, comments)
+
     def _get_tables_from_structure(self, document_structure) -> List[Any]:
         """Извлекает таблицы из структуры документа"""
 
