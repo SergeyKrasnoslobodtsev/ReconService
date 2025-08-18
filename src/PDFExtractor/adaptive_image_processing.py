@@ -68,9 +68,14 @@ class AdaptiveImageProcessing:
         self.logger.debug("Starting image processing")
         # Сначала попробуйте вашу старую рабочую версию
         cleaned = cv2.medianBlur(gray, 3)
-        # cleaned = cv2.threshold(cleaned, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-        cleaned = cv2.adaptiveThreshold(cleaned, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                        cv2.THRESH_BINARY, 21, 10)
+        # cleaned = cv2.bilateralFilter(cleaned, 3, 7, 7)
+        
+        # cleaned = cv2.adaptiveThreshold(cleaned, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        #                                 cv2.THRESH_BINARY, 21, 10)
+        # bilateral = cv2.bilateralFilter(cleaned, 15, 75, 75)
+        # kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        # erosion = cv2.erode(cleaned, kernel, iterations=1)
+        # dilation = cv2.dilate(erosion, kernel, iterations=1)
         # # Проверим, достаточно ли контраста в результате
         # contrast = np.std(cleaned)
         # if contrast < 100:  # Если результат слишком однородный
@@ -80,7 +85,7 @@ class AdaptiveImageProcessing:
         #     enhanced = clahe.apply(gray)
         #     cleaned = cv2.adaptiveThreshold(enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
         #                                 cv2.THRESH_BINARY, 15, 10)
-        # Image.fromarray(cleaned).show()
+        Image.fromarray(cleaned).show()
         return cleaned
 
     def _process_low_contrast(self, gray: np.ndarray, metrics: dict) -> np.ndarray:

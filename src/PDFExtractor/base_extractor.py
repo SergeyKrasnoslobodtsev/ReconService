@@ -266,6 +266,16 @@ class Document:
             return -1 
         return max(table.start_page_num for table in tables if table.start_page_num is not None)
 
+    def get_first_row_tables_text(self) -> str:
+        '''Получаем текст первой строки всех таблиц в документе'''
+        first_row_text = []
+        for page in self.pages:
+            for table in page.tables:
+                if table.cells:
+                    first_row = table.rows[0] if table.rows else []
+                    first_row_text.append(" ".join(cell.text for cell in first_row if cell.text))
+        return "\n".join(first_row_text)
+
     def get_all_text_paragraphs(self) -> str:
         '''Получем текс параграфов со всех страниц документа и представим его в виде строки'''
         full_text = []

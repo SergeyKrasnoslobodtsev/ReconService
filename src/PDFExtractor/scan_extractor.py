@@ -90,8 +90,9 @@ class ScanExtractor(BaseExtractor):
                 paragraphs.append(
                     Paragraph(
                         bbox=BBox(x, y, x+w, y+h),
+                        type= ParagraphType.NONE,
                         text='',
-                        paragraph_type=ParagraphType.FOOTER
+                        blobs= [cell.blobs for cell in cells]
                     )
                 )
 

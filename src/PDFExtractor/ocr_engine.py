@@ -58,6 +58,8 @@ class TesseractEngine(Engine):
         
         # $ между цифрами
         text = re.sub(r'(\d)\$(\d)', r'\g<1>8\g<2>', text)
+        # Замена @ на Ф
+        text = re.sub(r'@', 'Ф', text)
         return text
 
     def extract_text(self, image: np.ndarray) -> Tuple[str, List[Tuple[int, int, int, int]]]:

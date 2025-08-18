@@ -45,7 +45,7 @@ def remove_lines_by_mask(gray: np.ndarray, mask: np.ndarray) -> np.ndarray:
     # Опционально: там, где были линии (mask==255), заливаем белым,
     # чтобы нечёткие края получили идеальный фон
     cleaned[mask == 255] = 255
-
+    
     return cleaned
 
 def detected_text(roi_image: np.ndarray, vk: int=100, hk=50) -> np.ndarray:

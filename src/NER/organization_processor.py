@@ -30,6 +30,11 @@ class OrganizationProcessor:
         self.pullenti_formal_types = [ft.lower() for ft in self.org_types_full_names_map.values()]
         self.seller_key_words = ['продавец', 'с одной стороны', 'между', 'от продавца']
         self.buyer_key_words = ['покупатель', 'с другой стороны', 'от покупателя']
+        self.stop_organizations = [
+            'РЦУ',
+            'ОЦО',
+            'ОУФО',
+        ]
         self.org_ontos = self._configure_org_ontology()
 
     def _clean_organization_name(self, raw_name: str) -> str:
@@ -188,6 +193,11 @@ class OrganizationProcessor:
                     base_name = org_text_from_doc.strip()
 
             clean_name = self._clean_organization_name(base_name)
+
+            if any(stop_org.upper() in clean_name.upper() for stop_org in self.stop_organizations):
+                self.logger.debug(f"Организация '{clean_name}' исключена, так как находится в списке стоп-слов.")
+                continue  # Пропускаем эту организацию
+
             # "Общество с ограниченной ответственностью" в "ООО"
             normalized_name = self._normalize_org_name(clean_name)
             # В конце убеждаемся, что формат соответствует "Имя, Тип"
@@ -225,7 +235,7 @@ class OrganizationProcessor:
         # Если нашли соответствие формату 'ТИП "НАЗВАНИЕ"'
         if match:
             org_type = match.group(1).upper()  # "АО"
-            org_name = match.group(2)          # "ЕВРОСИБЭНЕРГО"
+            org_name = match.group(2)          
             
             # Собираем в формате "НАЗВАНИЕ, ТИП"
             formatted_name = f'{org_name}, {org_type}'
@@ -279,12 +289,14 @@ class OrganizationProcessor:
     def _assign_roles_by_keywords_and_rusal_logic(self, orgs_list: list[dict]) -> None:
         for org in orgs_list:
             win_text = org['window']
+        
 
             # Назначение по ключевым словам
             if any(kw in win_text for kw in self.seller_key_words):
                 org['role'] = 'продавец'
             elif any(kw in win_text for kw in self.buyer_key_words): 
                 org['role'] = 'покупатель'
+
 
             # Проверка логики РУСАЛ — покупатель
             is_rusal = (
@@ -299,6 +311,8 @@ class OrganizationProcessor:
                     self.logger.debug(
                         f"'{org['str_repr']}' -> 'покупатель' (РУСАЛ logic override, previous: {prev})"
                     )
+
+    
 
     def _assign_mutual_roles(self, orgs_list: list[dict]) -> None:
         # Найти организации с уже назначенными ролями

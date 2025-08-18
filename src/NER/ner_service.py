@@ -44,8 +44,11 @@ class NERService:
 
     def find_document_organizations(self) -> list[dict]:
         """Извлекает организации из всего текста документа."""
-        full_text = self.doc.get_all_text_paragraphs()
-        self._organizations = self.organization_processor.process_text(full_text)
+        paragraph_text = self.doc.get_all_text_paragraphs()
+        table_text = self.doc.get_first_row_tables_text()
+        full_text = table_text + "\n" + paragraph_text
+        print(paragraph_text)
+        self._organizations = self.organization_processor.process_text(paragraph_text)
         return self._organizations
 
     def extract_seller_reconciliation_details(self, seller_info: dict) -> dict:

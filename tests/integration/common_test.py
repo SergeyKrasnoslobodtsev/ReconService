@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import List, Tuple
 from PIL import Image
@@ -6,14 +5,17 @@ from PIL.ImageDraw import ImageDraw
 from PIL import ImageFont
 import pymupdf
 from pdf2image import convert_from_path
-
+import logging
+logger = logging.getLogger(__name__)
 # Инициализация Pullenti SDK
 from pullenti.Sdk import Sdk
+from src.config import load_config
 Sdk.initialize_all() 
-
-
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
 # ---- настройка имён -----------------------------------------------------------
-SCAN_PDF_NAME = "Неформализованный_первичный_документ_23_ИИА_03_00342_от_31_03.pdf"          # ожидаем True (скан)
+SCAN_PDF_NAME = "АС РУ- ВОСЬМОЙ ВЕТРОПАРК.pdf"          # ожидаем True (скан)
 STRUCTURED_PDF_NAME = "АСР СДД 2 кв.2024 (подп. к-а).pdf"  # ожидаем False (цифровой)
 # ------------------------------------------------------------------------------
 
@@ -23,6 +25,8 @@ PDF_DIR = PROJECT_ROOT / "pdf"
 
 SCAN_PDF = PDF_DIR / SCAN_PDF_NAME
 STRUCTURED_PDF = PDF_DIR / STRUCTURED_PDF_NAME
+
+load_config()
 
 def get_pdf_structure():
     return _read_pdf_bytes(STRUCTURED_PDF)

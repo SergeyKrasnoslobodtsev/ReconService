@@ -55,6 +55,7 @@ def _draw_table_visualization(image, page: Page, tables: List[Table]):
         h = parag.bbox.y2
         draw = common_test.draw_label(draw, F'{parag.type.name}', (x, y + 35))
         draw.rectangle([(x, y), (w, h)], outline='red', width=3) 
+        print(parag.text)
     image.show()
 
 
