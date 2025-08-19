@@ -93,45 +93,23 @@ class ReconciliationActExtractor:
                     credit_idx = cell.col
         return debit_idx, credit_idx
 
-    def extract_for_seller(self, seller_info: dict) -> dict:
+    def extract_for_seller(self, seller_name: str) -> dict:
         debit_entries_for_service = []  
         credit_entries_for_service = [] 
         valid_dates_for_period = []  
 
-        seller_names = set()
-        # ... (логика определения seller_names остается прежней) ...
-        if sr := seller_info.get('str_repr'):
-            sr_low = sr.lower()
-            seller_names.add(sr_low)
-            seller_names.add(sr_low.split(',')[0].strip())
-            seller_names.update(m.strip() for m in re.findall(r'\(([^,)]+)', sr_low) if m.strip() and len(m.strip()) > 1)
-        seller_names.update(cn.lower() for cn in seller_info.get('canonical_names', []))
-        
-        if raw_txt := seller_info.get('text'):
-            raw_low = raw_txt.lower()
-            core_raw = raw_low.split(',')[0].strip()
-            seller_names.add(core_raw)
-            if qm := re.search(r'["«“]([^"»”]+)["»”]', core_raw): 
-                seller_names.add(qm.group(1).strip())
-            seller_names.update(m.strip() for m in re.findall(r'\(([^,)]+)', raw_low) if m.strip() and len(m.strip()) > 1)
-        
-        sorted_seller_names = sorted([name for name in seller_names if name], key=len, reverse=True)
-        self.logger.debug(f"Варианты имени продавца для поиска: {sorted_seller_names}")
 
+        seller_name_norm = seller_name.strip().lower()
         for tbl_idx, tbl in enumerate(self.doc.get_tables()):
             self.logger.debug(f"Анализ таблицы {tbl_idx + 1} для акта сверки продавца.")
             main_hdr_cell: typing.Optional[Cell] = None
-            # ... (логика поиска main_hdr_cell остается прежней) ...
+
             for cell in tbl.cells:
                 if not cell.text: 
                     continue
                 cell_txt_low = cell.text.lower().strip()
-               
-                if "по данным продавца" in cell_txt_low: 
-                    main_hdr_cell = cell 
-                    break
-               
-                if "по данным" in cell_txt_low and any(v in cell_txt_low for v in sorted_seller_names):
+
+                if "по данным продавца" in normalize(cell_txt_low) or has_match(seller_name, cell_txt_low):
                     main_hdr_cell = cell
                     break
 
@@ -239,7 +217,7 @@ class ReconciliationActExtractor:
             "period_to": max_date_str
         }
     
-    def extract_for_buyer(self, buyer_info: dict) -> dict:
+    def extract_for_buyer(self, buyer_name: str) -> dict:
         """
         Извлекает значения дебета и кредита для покупателя по всем таблицам.
         Возвращает структуру аналогичную extract_for_seller:
@@ -251,43 +229,28 @@ class ReconciliationActExtractor:
         """
         debit_entries_for_service = []
         credit_entries_for_service = []
-        buyer_names = set()
-        
-        if sr := buyer_info.get('str_repr'):
-            sr_low = sr.lower()
-            buyer_names.add(sr_low)
-            buyer_names.add(sr_low.split(',')[0].strip())
-            buyer_names.update(m.strip() for m in re.findall(r'\(([^,)]+)', sr_low) if m.strip() and len(m.strip()) > 1)
-        buyer_names.update(cn.lower() for cn in buyer_info.get('canonical_names', []))
-        
-        if raw_txt := buyer_info.get('text'):
-            raw_low = raw_txt.lower()
-            core_raw = raw_low.split(',')[0].strip()
-            buyer_names.add(core_raw)
-            if qm := re.search(r'["«“]([^"»”]+)["»”]', core_raw): 
-                buyer_names.add(qm.group(1).strip())
-            buyer_names.update(m.strip() for m in re.findall(r'\(([^,)]+)', raw_low) if m.strip() and len(m.strip()) > 1)
-        
-        sorted_buyer_names = sorted([name for name in buyer_names if name], key=len, reverse=True)
-        self.logger.debug(f"Варианты имени покупателя для поиска: {sorted_buyer_names}")
+
 
         for tbl_idx, tbl in enumerate(self.doc.get_tables()):
             self.logger.debug(f"Анализ таблицы {tbl_idx + 1} для акта сверки покупателя.")
             main_hdr_cell: typing.Optional[Cell] = None
+            buyer_name_norm = buyer_name.strip().lower()
             for cell in tbl.cells:
                 if not cell.text: 
                     continue
                 cell_txt_low = cell.text.lower().strip()
-               
-                if "по данным покупателя" in cell_txt_low: 
-                    main_hdr_cell = cell 
-                    break
-                if "по данным клиента" in cell_txt_low: 
-                    main_hdr_cell = cell 
-                    break
-                if "по данным" in cell_txt_low and any(v in cell_txt_low for v in sorted_buyer_names):
+                if "по данным покупателя" in cell_txt_low or "по данным клиента" in cell_txt_low or buyer_name_norm in cell_txt_low:
                     main_hdr_cell = cell
                     break
+                # if "по данным покупателя" in cell_txt_low: 
+                #     main_hdr_cell = cell 
+                #     break
+                # if "по данным клиента" in cell_txt_low: 
+                #     main_hdr_cell = cell 
+                #     break
+                # if "по данным" in cell_txt_low and any(v in cell_txt_low for v in sorted_buyer_names):
+                #     main_hdr_cell = cell
+                #     break
             
             if not main_hdr_cell:
                 self.logger.debug(f"Заголовок покупателя не найден в табл. {tbl_idx + 1}.")
@@ -365,3 +328,14 @@ class ReconciliationActExtractor:
             "debit_entries_data": debit_entries_for_service,
             "credit_entries_data": credit_entries_for_service
         }
+    
+
+def normalize(text: str) -> str:
+    text = text.lower().replace("ё", "е")
+    text = re.sub(r"[^\w\s]", " ", text)  # убрать пунктуацию
+    return re.sub(r"\s+", " ", text).strip()
+
+def has_match(company_name: str, text: str) -> bool:
+    text_norm = normalize(text)
+    words = [w for w in normalize(company_name).split() if len(w) > 2]  # игнорируем короткие служебные слова
+    return any(word in text_norm for word in words)

@@ -6,7 +6,7 @@ class Organization(BaseModel):
     """Организация (продавец или покупатель)"""
     name: str = Field(..., min_length=1, description="Название организации")
     role: str = Field(..., description="Роль организации")
-    raw_data: Optional[Dict[str, Any]] = Field(default=None, description="Сырые данные организации")
+    raw_data: Optional[str] = Field(default=None, description="Сырые данные организации")
     
     # model_config = {
     #     "frozen": True

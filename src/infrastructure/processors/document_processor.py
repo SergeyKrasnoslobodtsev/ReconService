@@ -36,27 +36,27 @@ class DocumentProcessor(IDocumentProcessor):
             # NER-анализ
             self._logger.debug("Начало NER-анализа...")
             ner_service = NERService(document_structure)
-            ner_service.find_document_organizations()
+            roles = ner_service.find_document_organizations()
             
             # Проверка организаций
-            if not ner_service.get_seller_info:
+            if not roles.seller:
                 return DocumentProcessingResultDto(
                     success=False,
                     error_message="Информация о продавце не найдена в документе"
                 )
-            
-            if not ner_service.get_buyer_info:
+
+            if not roles.buyer:
                 return DocumentProcessingResultDto(
                     success=False,
                     error_message="Информация о покупателе не найдена в документе"
                 )
-            
+
             self._logger.debug(f"Найдены организации - Продавец: {ner_service.get_seller_name}, Покупатель: {ner_service.get_buyer_name}")
-            
+
             # Извлечение деталей сверки
             self._logger.debug("Извлечение деталей сверки...")
             reconciliation_data = ner_service.extract_seller_reconciliation_details(
-                ner_service.get_seller_info
+                roles.seller.name
             )
             
             if not reconciliation_data:
@@ -101,7 +101,7 @@ class DocumentProcessor(IDocumentProcessor):
                 success=True,
                 seller_name=ner_service.get_seller_name,
                 buyer_name=ner_service.get_buyer_name,
-                buyer_raw_data=ner_service.get_buyer_info,
+                buyer_raw_data=roles.buyer.name,
                 period_from=period_from,
                 period_to=period_to,
                 debit_entries=debit_entries,

@@ -312,8 +312,6 @@ class OrganizationProcessor:
                         f"'{org['str_repr']}' -> 'покупатель' (РУСАЛ logic override, previous: {prev})"
                     )
 
-    
-
     def _assign_mutual_roles(self, orgs_list: list[dict]) -> None:
         # Найти организации с уже назначенными ролями
         sellers = [org for org in orgs_list if org['role'] == 'продавец']

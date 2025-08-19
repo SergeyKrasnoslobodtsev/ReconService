@@ -70,8 +70,8 @@ class AdaptiveImageProcessing:
         cleaned = cv2.medianBlur(gray, 3)
         # cleaned = cv2.bilateralFilter(cleaned, 3, 7, 7)
         
-        # cleaned = cv2.adaptiveThreshold(cleaned, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-        #                                 cv2.THRESH_BINARY, 21, 10)
+        cleaned = cv2.adaptiveThreshold(cleaned, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                        cv2.THRESH_BINARY, 25, 15)
         # bilateral = cv2.bilateralFilter(cleaned, 15, 75, 75)
         # kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
         # erosion = cv2.erode(cleaned, kernel, iterations=1)
@@ -85,7 +85,7 @@ class AdaptiveImageProcessing:
         #     enhanced = clahe.apply(gray)
         #     cleaned = cv2.adaptiveThreshold(enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
         #                                 cv2.THRESH_BINARY, 15, 10)
-        Image.fromarray(cleaned).show()
+        # Image.fromarray(cleaned).show()
         return cleaned
 
     def _process_low_contrast(self, gray: np.ndarray, metrics: dict) -> np.ndarray:

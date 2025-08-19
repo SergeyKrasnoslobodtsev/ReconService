@@ -42,7 +42,7 @@ class DocumentProcessingResultDto(BaseModel):
     success: bool = Field(..., description="Успешность обработки")
     seller_name: Optional[str] = Field(default=None, description="Имя продавца")
     buyer_name: Optional[str] = Field(default=None, description="Имя покупателя")
-    buyer_raw_data: Optional[dict] = Field(default=None, description="Сырые данные покупателя")
+    buyer_raw_data: Optional[str] = Field(default=None, description="Сырые данные покупателя")
     period_from: Optional[str] = Field(default=None, description="Начало периода")
     period_to: Optional[str] = Field(default=None, description="Конец периода")
     debit_entries: List[dict] = Field(default_factory=list, description="Записи дебета")

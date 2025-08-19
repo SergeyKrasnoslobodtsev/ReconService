@@ -104,7 +104,7 @@ class FillDocumentUseCase:
             temp_doc = extractor.extract(document_structure.pdf_bytes)
             return temp_doc.get_tables()
     
-    def _extract_buyer_data(self, tables: List[Any], buyer_raw_data: Dict[str, Any]) -> Dict[str, Dict]:
+    def _extract_buyer_data(self, tables: List[Any], buyer_raw_data: str) -> Dict[str, Dict]:
         """Извлекает данные покупателя из документа"""
         try:
             # ИСПРАВЛЯЕМ - создаем Document с правильными таблицами
