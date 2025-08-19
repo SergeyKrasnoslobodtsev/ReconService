@@ -1,0 +1,586 @@
+from abc import ABC
+from dataclasses import dataclass, field
+import enum
+import logging
+from typing import List, Optional, Tuple, Union
+from PIL import Image
+import pymupdf
+
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter 
+from openpyxl.styles import Alignment, Border, Side 
+
+
+@dataclass
+class BBox:
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+    @property
+    def coords(self) -> Tuple[int, int, int, int]:
+        """Вернуть все координаты как кортеж."""
+        return self.x1, self.y1, self.x2, self.y2
+
+    @coords.setter
+    def coords(self, vals: Tuple[int, int, int, int]):
+        """Установить сразу все координаты из кортежа."""
+        self.x1, self.y1, self.x2, self.y2 = vals
+
+    @property
+    def width(self) -> int:
+        """Ширина bbox."""
+        return self.x2 - self.x1
+
+    @property
+    def height(self) -> int:
+        """Высота bbox."""
+        return self.y2 - self.y1
+
+    def padding(self, pix: int = 5) -> "BBox":
+        return BBox(
+            x1=self.x1 - pix,
+            y1=self.y1 - pix,
+            x2=self.x2 + pix,
+            y2=self.y2 + pix,
+        )
+    
+    def contains(self, other: 'BBox') -> bool:
+        return (self.x1 <= other.x1 and
+                self.y1 <= other.y1 and
+                self.x2 >= other.x2 and
+                self.y2 >= other.y2)
+
+    @classmethod
+    def from_rect(
+        cls,
+        rect: Union[
+            "pymupdf.Rect",      # если у вас есть real Rect
+            Tuple[float, float, float, float]  # или кортеж (x0,y0,x1,y1)
+        ],
+        sx: float = 1.0,
+        sy: float = 1.0
+    ) -> "BBox":
+        """Создать BBox из pymupdf.Rect или из кортежа (x0, y0, x1, y1) с учётом масштабов."""
+        # разбираем вход
+        if hasattr(rect, "x0"):
+            x0, y0, x1, y1 = rect.x0, rect.y0, rect.x1, rect.y1
+        else:
+            x0, y0, x1, y1 = rect  # ожидаем кортеж из 4-х чисел
+
+        return cls(
+            x1=int(x0 * sx),
+            y1=int(y0 * sy),
+            x2=int(x1 * sx),
+            y2=int(y1 * sy),
+        )
+
+class InsertionPosition(enum.Enum):
+    TOP = "top"  # Сверху
+    BOTTOM = "bottom" # Снизу
+    LEFT = "left"
+    RIGHT = "right"
+
+@dataclass
+class Cell:
+    bbox: BBox
+    row: int
+    col: int
+    colspan: int
+    rowspan: int
+    text: str = None
+    blobs: List[BBox] = field(default_factory=list)
+    original_page_num: Optional[int] = None
+
+    @property
+    def has_text(self) -> bool:
+        """Проверяет, содержит ли ячейка текст (на основе атрибута text)."""
+        return self.text is not None and self.text.strip() != ""
+
+    @property
+    def free_space_ratio(self) -> float:
+        """
+        Оценивает долю свободного пространства внутри bbox ячейки, не занятого blobs.
+        Возвращает 1.0, если bbox ячейки имеет нулевую площадь.
+        """
+        cell_area = self.bbox.width * self.bbox.height
+        if cell_area == 0:
+            return 1.0  # Если площадь ячейки 0, считаем ее полностью свободной или полностью занятой в зависимости от контекста. 1.0 означает нет места для нового.
+                        # Или можно вернуть 0.0 если blobs тоже нет, что означает "нет контента, нет места"
+
+        occupied_area_by_blobs = 0
+        for blob in self.blobs:
+            occupied_area_by_blobs += blob.width * blob.height
+        
+        # Ограничиваем occupied_area, чтобы она не превышала cell_area
+        occupied_area_by_blobs = min(occupied_area_by_blobs, float(cell_area))
+
+        free_area = cell_area - occupied_area_by_blobs
+        return free_area / cell_area
+
+    def get_insertion_area(
+        self,
+        position: InsertionPosition,
+        min_height: int = 10, # Минимальная высота для области вставки
+        padding: int = 2      # Отступ от краев основного bbox ячейки
+    ) -> Optional[BBox]:
+        """
+        Вычисляет прямоугольную область внутри ячейки, подходящую для вставки нового текста.
+        Область будет занимать ширину ячейки (за вычетом отступов).
+
+        Args:
+            position: Член перечисления InsertionPosition (TOP или BOTTOM).
+            min_height: Минимально необходимая высота для области вставки.
+            padding: Отступ от краев основного bbox ячейки.
+
+        Returns:
+            Объект BBox, представляющий доступную область, или None, если подходящая область не найдена.
+        """
+        if self.bbox.width <= 2 * padding or self.bbox.height <= 2 * padding:
+            return None # Ячейка слишком мала для отступов
+
+        # Эффективные границы ячейки после применения отступов
+        eff_cell_x1 = self.bbox.x1 + padding
+        eff_cell_y1 = self.bbox.y1 + padding
+        eff_cell_x2 = self.bbox.x2 - padding
+        eff_cell_y2 = self.bbox.y2 - padding
+
+        if eff_cell_x1 >= eff_cell_x2 or eff_cell_y1 >= eff_cell_y2:
+            return None # Нет места после применения отступов
+
+        insert_x1 = eff_cell_x1
+        insert_x2 = eff_cell_x2
+        insert_y1 = -1
+        insert_y2 = -1
+
+        # Фильтруем blobs, которые находятся по горизонтали в пределах эффективной ширины ячейки
+        relevant_blobs = [
+            b for b in self.blobs if b.x1 < eff_cell_x2 and b.x2 > eff_cell_x1
+        ]
+
+        if position == InsertionPosition.TOP:
+            insert_y1 = eff_cell_y1 
+            limit_y = eff_cell_y2 # По умолчанию, предел - это нижняя граница ячейки с отступом
+            if relevant_blobs:
+                # Ищем самый верхний край существующих blobs, чтобы вставить текст над ними
+                blob_tops = [b.y1 for b in relevant_blobs if b.y1 >= eff_cell_y1] 
+                if blob_tops:
+                    limit_y = min(min(blob_tops) - 1, eff_cell_y2) # -1 для небольшого зазора
+            insert_y2 = limit_y
+
+        elif position == InsertionPosition.BOTTOM:
+            insert_y2 = eff_cell_y2
+            limit_y = eff_cell_y1 # По умолчанию, предел - это верхняя граница ячейки с отступом
+            if relevant_blobs:
+                # Ищем самый нижний край существующих blobs, чтобы вставить текст под ними
+                blob_bottoms = [b.y2 for b in relevant_blobs if b.y2 <= eff_cell_y2]
+                if blob_bottoms:
+                    limit_y = max(max(blob_bottoms) + 1, eff_cell_y1) # +1 для небольшого зазора
+            insert_y1 = limit_y
+        else:
+            # Это можно расширить для других позиций, таких как LEFT, RIGHT и т.д.
+            raise NotImplementedError(f"Позиция для вставки {position} еще не поддерживается.")
+
+        # Проверяем рассчитанную область
+        if insert_y1 != -1 and insert_y2 != -1 and \
+        insert_x1 < insert_x2 and insert_y1 < insert_y2 and \
+        (insert_y2 - insert_y1) >= min_height:
+            return BBox(x1=insert_x1, y1=insert_y1, x2=insert_x2, y2=insert_y2)
+
+        return None
+
+@dataclass
+class Table:
+    bbox: BBox
+    cells: List[Cell] = field(default_factory=list)
+    start_page_num: Optional[int] = None
+    end_page_num: Optional[int] = None
+    
+    @property
+    def average_blob_height(self) -> float:
+        """
+        Рассчитывает среднюю высоту всех blobs во всех ячейках таблицы.
+        Возвращает 0.0, если blobs отсутствуют в таблице.
+        """
+        all_blobs_heights = []
+        for cell in self.cells:
+            for blob in cell.blobs:
+                all_blobs_heights.append(blob.height)
+        
+        if not all_blobs_heights:
+            return 12.0
+        return sum(all_blobs_heights) / len(all_blobs_heights) + 6
+
+    @property
+    def rows(self) -> List[List[Cell]]:
+        """
+        Возвращает список строк таблицы, где каждая строка - это список ячеек.
+        Строки упорядочены по вертикали (от верхней к нижней).
+        """
+        if not self.cells:
+            return []
+
+        # Группируем ячейки по строкам
+        rows_dict = {}
+        for cell in self.cells:
+            row_key = cell.row
+            if row_key not in rows_dict:
+                rows_dict[row_key] = []
+            rows_dict[row_key].append(cell)
+
+        # Сортируем строки по ключу (номеру строки)
+        sorted_rows = sorted(rows_dict.items())
+        return [row_cells for _, row_cells in sorted_rows]
+
+class ParagraphType(enum.Enum):
+    HEADER = 0
+    FOOTER = 1
+    NONE = 2
+
+@dataclass
+class Paragraph:
+    bbox: BBox
+    type: ParagraphType = ParagraphType.NONE
+    text: str = None
+    blobs: List[BBox] = field(default_factory=list)
+    
+
+@dataclass
+class Page:
+    image: Image.Image = None
+    tables: List[Table] = field(default_factory=list)
+    paragraphs: List[Paragraph] = field(default_factory=list)
+    num_page: int = 0
+
+@dataclass
+class Document:
+    pdf_bytes: bytes = None
+    pages: List[Page] = field(default_factory=list)
+    page_count: int = 0
+
+    def get_last_page_number_table(self) -> int:
+        '''Получаем номер последней страницы с таблицей'''
+        tables = self.get_tables()
+        if not tables:
+            return -1 
+        return max(table.start_page_num for table in tables if table.start_page_num is not None)
+
+    def get_first_row_tables_text(self) -> str:
+        '''Получаем текст первой строки всех таблиц в документе'''
+        first_row_text = []
+        for page in self.pages:
+            for table in page.tables:
+                if table.cells:
+                    first_row = table.rows[0] if table.rows else []
+                    first_row_text.append(" ".join(cell.text for cell in first_row if cell.text))
+        return "\n".join(first_row_text)
+
+    def get_all_text_paragraphs(self) -> str:
+        '''Получем текс параграфов со всех страниц документа и представим его в виде строки'''
+        full_text = []
+        for page in self.pages:
+            for para in page.paragraphs:
+                if not para.text:
+                    continue
+                full_text.append(para.text)
+        
+        return "\n".join(full_text)
+
+    def _get_table_column_count(self, table_obj: Table) -> int:
+        """
+        Calculates the number of columns in a table.
+        Returns 0 if the table has no cells.
+        """
+        if not table_obj.cells:
+            return 0
+        max_col_idx = 0  # 0-indexed
+        for cell in table_obj.cells:
+            max_col_idx = max(max_col_idx, cell.col + cell.colspan - 1)
+        return max_col_idx + 1  # Return 1-indexed count
+
+    def get_tables(self) -> List[Table]:
+        def _first_row_text_lower(t: Table) -> str:
+            if not t.cells or not t.rows:
+                return ""
+            return " ".join((c.text or "").lower() for c in t.rows[0] if c.text)
+
+        # 1) Собираем "поток" элементов (параграфы+таблицы), отсортированный по (страница, y1)
+        all_elements = []
+        for page_data in self.pages:
+            for p_obj in page_data.paragraphs:
+                all_elements.append({'type': 'paragraph', 'obj': p_obj,
+                                    'page_num': page_data.num_page, 'y1': p_obj.bbox.y1})
+            for t_obj in page_data.tables:
+                if t_obj.cells:
+                    all_elements.append({'type': 'table', 'obj': t_obj,
+                                        'page_num': page_data.num_page, 'y1': t_obj.bbox.y1})
+        all_elements.sort(key=lambda x: (x['page_num'], x['y1']))
+
+        logical_tables: List[Table] = []
+
+        # Текущее «логическое» объединение
+        acc_cells: List[Cell] = []
+        row_offset = 0
+        first_bbox: Optional[BBox] = None
+        start_page: Optional[int] = None
+        last_page: int = -1
+        current_col_count: int = -1
+
+        # Флаг — был в «потоке» смысловой параграф после последнего фрагмента
+        had_semantic_paragraph_after_last_fragment = False
+
+        for el in all_elements:
+            if el['type'] == 'paragraph':
+                para: Paragraph = el['obj']
+                # колонтитулы не считаем разделителями
+                if para.type not in (ParagraphType.HEADER, ParagraphType.FOOTER):
+                    # видим смысловой параграф — помечаем границу
+                    had_semantic_paragraph_after_last_fragment = True
+
+            else:  # table
+                frag: Table = el['obj']
+                if not frag.cells:
+                    continue
+
+                frag_first_row_text = _first_row_text_lower(frag)
+                frag_cols = self._get_table_column_count(frag)
+
+                starts_new = False
+
+                if not acc_cells:
+                    starts_new = True
+                else:
+                    if not acc_cells:
+                        starts_new = True
+                    else:
+                        starts_new = (
+                            had_semantic_paragraph_after_last_fragment
+                            or ("по данным" in frag_first_row_text)
+                            or (current_col_count > 0 and frag_cols > 0 and current_col_count != frag_cols)
+                        )
+
+                if starts_new and acc_cells:
+                    logical_tables.append(Table(
+                        bbox=first_bbox,
+                        cells=list(acc_cells),
+                        start_page_num=start_page,
+                        end_page_num=last_page
+                    ))
+                    acc_cells.clear()
+                    row_offset = 0
+                    first_bbox = None
+                    start_page = None
+                    last_page = -1
+                    current_col_count = -1
+
+                if starts_new or not acc_cells:
+                    first_bbox = frag.bbox
+                    start_page = el['page_num']
+                    current_col_count = frag_cols
+
+                # Перекладываем ячейки с учетом row_offset и сохраняем original_page_num
+                max_row_end = 0
+                for cell in frag.cells:
+                    acc_cells.append(Cell(
+                        bbox=cell.bbox,
+                        row=cell.row + row_offset,
+                        col=cell.col,
+                        colspan=cell.colspan,
+                        rowspan=cell.rowspan,
+                        text=cell.text,
+                        blobs=list(cell.blobs),
+                        original_page_num=el['page_num']
+                    ))
+                    max_row_end = max(max_row_end, cell.row + cell.rowspan)
+
+                row_offset += max_row_end
+                last_page = el['page_num']
+                had_semantic_paragraph_after_last_fragment = False
+
+        # добираем хвост
+        if acc_cells and first_bbox is not None:
+            logical_tables.append(Table(
+                bbox=first_bbox,
+                cells=list(acc_cells),
+                start_page_num=start_page,
+                end_page_num=last_page
+            ))
+
+        return logical_tables
+        
+    def to_excel(self, file_path: str):
+        """
+        Сохраняет все логические таблицы из документа в файл Excel.
+        Таблицы, разделенные параграфами, считаются новыми.
+        Части таблиц без параграфов между ними (даже через страницы) объединяются.
+        Каждая логическая таблица сохраняется на отдельный лист.
+        Ячейки будут иметь рамки.
+
+        Args:
+            file_path (str): Путь для сохранения файла Excel.
+        """
+        wb = Workbook()
+        if "Sheet" in wb.sheetnames:
+            default_sheet = wb["Sheet"]
+            wb.remove(default_sheet)
+
+        all_elements = []
+        for page_data in self.pages:
+            for p_obj in page_data.paragraphs:
+                all_elements.append({'type': 'paragraph', 'obj': p_obj, 
+                                     'page_num': page_data.num_page, 'y1': p_obj.bbox.y1})
+            for t_obj in page_data.tables:
+                if t_obj.cells: 
+                    all_elements.append({'type': 'table', 'obj': t_obj, 
+                                         'page_num': page_data.num_page, 'y1': t_obj.bbox.y1})
+        
+        all_elements.sort(key=lambda x: (x['page_num'], x['y1']))
+
+        logical_tables_cell_lists = []
+        current_accumulated_cells = []
+        current_row_offset = 0
+
+        for element_data in all_elements:
+            el_type = element_data['type']
+            el_obj = element_data['obj']
+
+            if el_type == 'table':
+                table_fragment: Table = el_obj
+                
+                max_rows_in_this_fragment = 0
+                if table_fragment.cells:
+                    for cell in table_fragment.cells:
+                        adjusted_cell = Cell(
+                            bbox=cell.bbox,
+                            row=cell.row + current_row_offset,
+                            col=cell.col,
+                            colspan=cell.colspan,
+                            rowspan=cell.rowspan,
+                            text=cell.text,
+                            blobs=list(cell.blobs)
+                        )
+                        current_accumulated_cells.append(adjusted_cell)
+                        max_rows_in_this_fragment = max(max_rows_in_this_fragment, cell.row + cell.rowspan)
+                
+                current_row_offset += max_rows_in_this_fragment
+            
+            elif el_type == 'paragraph':
+                if current_accumulated_cells:
+                    logical_tables_cell_lists.append(list(current_accumulated_cells))
+                    current_accumulated_cells.clear()
+                    current_row_offset = 0
+
+        if current_accumulated_cells:
+            logical_tables_cell_lists.append(list(current_accumulated_cells))
+
+        if not logical_tables_cell_lists:
+            if not wb.sheetnames:
+                wb.create_sheet(title="NoTablesFound")
+        else:
+            # Определяем стиль границы
+            thin_border_side = Side(border_style="thin", color="000000")
+            cell_border = Border(left=thin_border_side, 
+                                 right=thin_border_side, 
+                                 top=thin_border_side, 
+                                 bottom=thin_border_side)
+
+            for i, final_table_cells in enumerate(logical_tables_cell_lists):
+                sheet_name = f"Table_{i + 1}"
+                if len(sheet_name) > 31: 
+                    sheet_name = f"Tb{i+1}"[:31] 
+                
+                ws = wb.create_sheet(title=sheet_name)
+
+                if not final_table_cells:
+                    continue
+
+                for cell_data in final_table_cells:
+                    start_row_excel = cell_data.row + 1
+                    start_col_excel = cell_data.col + 1
+                    
+                    excel_cell_obj = ws.cell(row=start_row_excel, column=start_col_excel, value=cell_data.text)
+                    
+                    # Применяем рамку ко всем ячейкам, которые будут частью объединенной или одиночной ячейки
+                    # Для объединенных ячеек стиль применяется к верхней левой ячейке диапазона
+                    excel_cell_obj.border = cell_border
+                    excel_cell_obj.alignment = Alignment(wrap_text=True, vertical='top') # Выравнивание по умолчанию
+
+                    if cell_data.rowspan > 1 or cell_data.colspan > 1:
+                        end_row_excel = start_row_excel + cell_data.rowspan - 1
+                        end_col_excel = start_col_excel + cell_data.colspan - 1
+                        try:
+                            ws.merge_cells(start_row=start_row_excel, 
+                                           start_column=start_col_excel, 
+                                           end_row=end_row_excel, 
+                                           end_column=end_col_excel)
+                            # Для объединенных ячеек, стиль рамки и выравнивание уже применены к excel_cell_obj
+                            # Можно добавить специфичное выравнивание для объединенных ячеек, если нужно
+                            excel_cell_obj.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                        except Exception:
+                            pass 
+                    else: # Для одиночных ячеек рамка и выравнивание уже применены
+                        excel_cell_obj.alignment = Alignment(wrap_text=True, vertical='top') # Уже установлено выше
+
+                for col_idx_ws in range(1, ws.max_column + 1):
+                    column_letter = get_column_letter(col_idx_ws)
+                    ws.column_dimensions[column_letter].autosize = True
+        try:
+            wb.save(file_path)
+        except Exception as e:
+            raise
+
+class BaseExtractor(ABC):
+    def __init__(self):
+        self.logger = logging.getLogger('app.' + __class__.__name__)
+
+    def extract(self, pdf_bytes: bytes) -> Document:
+        self.logger.info("Начало процесса извлечения данных из PDF.")
+        if not pdf_bytes:
+            self.logger.error("Получены пустые байты PDF. Прерывание операции.")
+            raise ValueError("pdf_bytes не могут быть пустыми.")
+
+        try:
+            doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        except Exception as e:
+            self.logger.error(f"Ошибка при открытии PDF документа: {e}", exc_info=True)
+            raise 
+
+        page_count = len(doc)
+        self.logger.info(f"Документ успешно открыт. Количество страниц: {page_count}.")
+        
+        pages_data: List[Page] = []
+        for i in range(page_count):
+            self.logger.info(f"Обработка страницы {i + 1}/{page_count}.")
+            page_content = doc[i]
+            try:
+                paragraphs, tables = self._process(page_content)
+                self.logger.debug(f"Страница {i + 1}: найдено {len(paragraphs)} параграфов и {len(tables)} таблиц.")
+                
+                pages_data.append(
+                    Page(
+                        tables=tables,
+                        paragraphs=paragraphs,
+                        num_page=i
+                    )
+                )
+            except Exception as e:
+                self.logger.error(f"Ошибка при обработке страницы {i + 1}: {e}", exc_info=True)
+
+                pages_data.append(
+                    Page(num_page=i) 
+                )
+                continue 
+
+        self.logger.info("Все страницы обработаны. Формирование итогового документа.")
+        final_document = Document(
+                            pdf_bytes=pdf_bytes,
+                            pages=pages_data,
+                            page_count=len(pages_data)
+                        )
+        self.logger.info("Процесс извлечения данных из PDF завершен.")
+        return final_document
+    
+    def _process(self, page)-> Tuple[List[Paragraph], List[Table]]:
+        ...
+

@@ -1,0 +1,23 @@
+ 
+# Настройки API
+api:
+  title: "Reconciliation Act Service API"
+  description: "API для обработки актов сверки"
+  version: "1.0.0"
+
+
+service:
+  process_ttl_hours: 1  # Время жизни процесса в часах
+  cleanup_interval_hours: 0.1  # Интервал очистки временных файлов (часов)
+  max_workers: 2  # Максимальное количество рабочих потоков
+
+# Настройки OCR
+ocr:
+  engine: "tesseract"         # tesseract или easyocr
+  language: "rus+eng"
+  tessdata_dir: ""
+  psm: 4                # Page Segmentation Mode (0-13)
+  max_workers: 4  # Максимальное количество рабочих потоков для OCR
+  dpi_image: 300  
+
+  

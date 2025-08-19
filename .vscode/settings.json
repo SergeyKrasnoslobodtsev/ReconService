@@ -1,0 +1,10 @@
+{
+    "python-envs.pythonProjects": [],
+    "python.testing.pytestArgs": [
+        "tests",
+        "-s",
+        "-v"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
+}
