@@ -304,7 +304,7 @@ def draw_text_to_cell_with_context(image: Image.Image, cell: Cell, new_text: str
     try:
         font = ImageFont.truetype("arial.ttf", font_size)
     except IOError:
-        font = ImageFont.load_default()
+        font = ImageFont.load_default(font_size)
 
     # Анализируем позиционирование текста в строке
     positioning_info = analyze_row_text_positioning(row_cells, cell)
@@ -348,13 +348,13 @@ def draw_text_to_cell(image: Image.Image, cell: Cell, new_text: str, font_size: 
     """Оригинальная функция для обратной совместимости."""
     return draw_text_to_cell_with_context(image, cell, new_text, font_size, [cell])
 
-def draw_comments_to_bottom_right(image: Image.Image, bbox_table: BBox, comments: str, font_size: int = 24) -> Image.Image:
+def draw_comments_to_bottom_right(image: Image.Image, bbox_table: BBox, comments: str, font_size: int = 20) -> Image.Image:
     """Рисует комментарии в правом нижнем углу страницы."""
     draw = ImageDraw.Draw(image)
     try:
         font = ImageFont.truetype("arial.ttf", font_size)
     except IOError:
-        font = ImageFont.load_default()
+        font = ImageFont.load_default(font_size)
 
     # Получаем размеры комментариев
     text_bbox_pil = draw.textbbox((0, 0), comments, font=font)
@@ -368,5 +368,5 @@ def draw_comments_to_bottom_right(image: Image.Image, bbox_table: BBox, comments
     if bbox_table:
         if final_x < bbox_table.x2 and final_y < bbox_table.y2:
             final_y = bbox_table.y2 + 5
-    draw.text((final_x, final_y), comments, fill="black", font=font)
+    draw.text((final_x, final_y), comments, fill="blue", font=font)
     return image
