@@ -348,7 +348,7 @@ def draw_text_to_cell(image: Image.Image, cell: Cell, new_text: str, font_size: 
     """Оригинальная функция для обратной совместимости."""
     return draw_text_to_cell_with_context(image, cell, new_text, font_size, [cell])
 
-def draw_comments_to_bottom_right(image: Image.Image, bbox_table: BBox, comments: str, font_size: int = 20) -> Image.Image:
+def draw_comments_to_bottom_right(image: Image.Image, bbox_table: BBox, comments: str, font_size: int = 30) -> Image.Image:
     """Рисует комментарии в правом нижнем углу страницы."""
     draw = ImageDraw.Draw(image)
     try:
