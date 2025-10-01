@@ -47,7 +47,7 @@ class FillDocumentUseCase:
             if isinstance(document_structure, dict):
                 document_structure = DocumentStructure(**document_structure)
 
-            print(f'Last page with table: {document_structure.last_page_with_table}')
+            print(f'Last page with table: {document_structure.page_count}')
             # Получаем изображения страниц
             images = convert_to_pil(document_structure.pdf_bytes)
             tables = self._get_tables_from_structure(document_structure)
@@ -64,8 +64,8 @@ class FillDocumentUseCase:
                 tables=tables,
                 render_images=render_images
             )
-            self._fill_comments_last_page(render_images, document_structure.last_page_with_table, tables, dto.comments)
-            self._logger.info(f"Последняя страница с таблицей: {document_structure.last_page_with_table} для процесса: {process_id}")
+            self._fill_comments_last_page(render_images, document_structure.page_count - 1, dto.comments)
+            self._logger.info(f"Последняя страница с таблицей: {document_structure.page_count} для процесса: {process_id}")
             self._logger.info(f"Заполнено {filled_count} ячеек для процесса: {process_id}")
             
             # Конвертируем обратно в PDF
@@ -85,11 +85,11 @@ class FillDocumentUseCase:
             
             raise RuntimeError(f"Ошибка при заполнении документа: {str(e)}")
 
-    def _fill_comments_last_page(self, render_images: List[Any], last_page_with_table: int, tables: List[Any], comments: str) -> None:
+    def _fill_comments_last_page(self, render_images: List[Any], end_num_page: int, comments: str) -> None:
         """Заполняет комментарии на последней странице таблиц"""
         
-        img = render_images[last_page_with_table]
-        render_images[last_page_with_table] = draw_comments_to_bottom_right(img, tables[0].bbox, comments)
+        img = render_images[end_num_page]
+        render_images[end_num_page] = draw_comments_to_bottom_right(img, comments)
 
     def _get_tables_from_structure(self, document_structure) -> List[Any]:
         """Извлекает таблицы из структуры документа"""

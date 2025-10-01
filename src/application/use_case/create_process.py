@@ -94,7 +94,7 @@ class CreateProcessUseCase:
                     pdf_bytes=pdf_bytes,
                     tables=result.document_structure.get('tables', []),
                     metadata=result.document_structure.get('metadata', {}),
-                    last_page_with_table=result.document_structure.get('last_page_with_table', 0)
+                    last_page_with_table=result.document_structure.get('page_count', 0)
 )
                 
                 # Завершаем успешно

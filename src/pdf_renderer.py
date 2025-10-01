@@ -348,7 +348,7 @@ def draw_text_to_cell(image: Image.Image, cell: Cell, new_text: str, font_size: 
     """Оригинальная функция для обратной совместимости."""
     return draw_text_to_cell_with_context(image, cell, new_text, font_size, [cell])
 
-def draw_comments_to_bottom_right(image: Image.Image, bbox_table: BBox, comments: str, font_size: int = 30) -> Image.Image:
+def draw_comments_to_bottom_right(image: Image.Image, comments: str, font_size: int = 30) -> Image.Image:
     """Рисует комментарии в правом нижнем углу страницы."""
     draw = ImageDraw.Draw(image)
     try:
@@ -363,10 +363,7 @@ def draw_comments_to_bottom_right(image: Image.Image, bbox_table: BBox, comments
 
     # Позиционируем текст в правом нижнем углу ячейки четверть от высоты страницы
     final_x = image.width - text_width - 10 
-    final_y = (image.height - image.height // 4)
-    # Опустим текст если наезжает на таблицу
-    if bbox_table:
-        if final_x < bbox_table.x2 and final_y < bbox_table.y2:
-            final_y = bbox_table.y2 + 5
+    final_y = (image.height - text_height)
+
     draw.text((final_x, final_y), comments, fill="blue", font=font)
     return image

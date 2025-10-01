@@ -106,11 +106,11 @@ def test_extract_from_scan(extractors):
     images = common_test.convert_to_pil(doc.pdf_bytes) 
     tables = doc.get_tables()
     # получим номер последней страницы с таблицей
-    last_page_with_table = doc.get_last_page_number_table()
+    last_page_with_table = doc.page_count
     print(f'Last page with table: {last_page_with_table} - {doc.page_count}')
     for image, page in zip(images, doc.pages):
-        if last_page_with_table == page.num_page:
-            image = draw_comments_to_bottom_right(image, page.tables[0].bbox, comments)
+        image = draw_comments_to_bottom_right(image, comments)
+            
 
         _draw_table_visualization(image, page, tables) 
         

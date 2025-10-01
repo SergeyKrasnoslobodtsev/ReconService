@@ -20,7 +20,7 @@ class DocumentStructure(BaseModel):
     """Структура документа"""
     pdf_bytes: bytes
     tables: List[Any] = Field(default_factory=list)
-    last_page_with_table: int = Field(default_factory=int)
+    page_count: int = Field(default_factory=int)
     metadata: dict = Field(default_factory=dict)
     
     model_config = {
