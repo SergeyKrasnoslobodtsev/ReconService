@@ -70,13 +70,13 @@ def convert_to_bytes(images: List[Image.Image]) -> bytes:
         render_h = img_h_px * scale_factor
         
         # Смещения для центрирования изображения
-        x_offset = (page_width_pt - render_w) / 2
-        y_offset = (page_height_pt - render_h) / 2
+        x_offset = page_width_pt - render_w  # вплотную вправо
+        y_offset = page_height_pt - render_h  # вплотную вниз
         
         # Прямоугольник для вставки изображения на PDF странице
         image_rect_on_page = pymupdf.Rect(x_offset, y_offset, x_offset + render_w, y_offset + render_h)
 
-        # Конвертируем PIL Image в байты PNG
+        # Конвертируем PIL Image 
         img_byte_io = BytesIO()
         img_pil.save(img_byte_io, format="JPEG", quality=85)
         img_byte_io.seek(0)
@@ -348,7 +348,7 @@ def draw_text_to_cell(image: Image.Image, cell: Cell, new_text: str, font_size: 
     """Оригинальная функция для обратной совместимости."""
     return draw_text_to_cell_with_context(image, cell, new_text, font_size, [cell])
 
-def draw_comments_to_bottom_right(image: Image.Image, comments: str, font_size: int = 30) -> Image.Image:
+def draw_comments_to_bottom_right(image: Image.Image, comments: str, font_size: int = 30, line_spacing: int = 0) -> Image.Image:
     """Рисует комментарии в правом нижнем углу страницы."""
     draw = ImageDraw.Draw(image)
     try:
@@ -357,13 +357,14 @@ def draw_comments_to_bottom_right(image: Image.Image, comments: str, font_size: 
         font = ImageFont.load_default(font_size)
 
     # Получаем размеры комментариев
-    text_bbox_pil = draw.textbbox((0, 0), comments, font=font)
+    text_bbox_pil = draw.textbbox((0, 0), comments, font=font, spacing=line_spacing)
     text_width = text_bbox_pil[2] - text_bbox_pil[0]
     text_height = text_bbox_pil[3] - text_bbox_pil[1]
-
+    
     # Позиционируем текст в правом нижнем углу ячейки четверть от высоты страницы
     final_x = image.width - text_width - 10 
-    final_y = (image.height - text_height)
+    final_y = image.height - text_height - 10
 
-    draw.text((final_x, final_y), comments, fill="blue", font=font)
+    draw.multiline_text((final_x, final_y), comments, fill="blue", font=font, spacing=line_spacing)
+
     return image

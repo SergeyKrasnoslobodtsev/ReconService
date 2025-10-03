@@ -43,7 +43,7 @@ class FillDocumentUseCase:
             self._logger.info(f"Начало заполнения документа для процесса: {process_id}")
             
             # Получаем структуру документа
-            document_structure = process.document_structure
+            document_structure: DocumentStructure = process.document_structure
             if isinstance(document_structure, dict):
                 document_structure = DocumentStructure(**document_structure)
 
@@ -64,7 +64,7 @@ class FillDocumentUseCase:
                 tables=tables,
                 render_images=render_images
             )
-            self._fill_comments_last_page(render_images, document_structure.page_count - 1, dto.comments)
+            self._fill_comments_last_page(render_images, document_structure.page_count, dto.comments)
             self._logger.info(f"Последняя страница с таблицей: {document_structure.page_count} для процесса: {process_id}")
             self._logger.info(f"Заполнено {filled_count} ячеек для процесса: {process_id}")
             
