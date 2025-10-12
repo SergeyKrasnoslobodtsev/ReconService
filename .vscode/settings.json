@@ -3,7 +3,8 @@
     "python.testing.pytestArgs": [
         "tests",
         "-s",
-        "-v"
+        "-v",
+        "--log-cli-level=DEBUG"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true

@@ -50,31 +50,59 @@ class _OrgExtractor(IOrgExtractor):
         self.logger = logging.getLogger("app." + __class__.__name__)
     
     def extract(self, text: str) -> Optional[Org]:
+        """Извлекает организации из текста, возвращает список до 2-х организаций с именем и типом."""
         conf_ontology = self._configure_org_ontology()
         conf_ontology.initialize()
-
+        print("DEBUG: extrcting text:\n", text)
         with ProcessorService.create_specific_processor(OrganizationAnalyzer.ANALYZER_NAME) as proc:
             ar: AnalysisResult = proc.process(SourceOfAnalysis(text), conf_ontology)
-        candidates: List[Org] = []
+        candidates_raw: List[Org] = []
         for e0_ in ar.entities:
 
             if not isinstance(e0_, OrganizationReferent):
                 continue
             best_name = self.select_best_org_name_and_type(e0_, text)
-            candidates.append(Org(name=best_name['name'], otype=best_name['type']))
+            org = Org(name=best_name['name'], otype=best_name['type'])
+            # Добавим фильтрацию дубликатов по имени (и типу)
+            if org.name and org.otype:
+                candidates_raw.append(org)
+        candidates = self.grouped_orgs(candidates_raw) 
         if len(candidates) > 1: 
             candidates = candidates[:2]
         return candidates
 
+    def grouped_orgs(self, candidates_raw: List[Org]):
+        """Группирует организации по имени, возвращает список уникальных организаций."""
+        candidates_dict = {}
+        for org in candidates_raw:
+            key = org.name
+            if key not in candidates_dict:
+                candidates_dict[key] = org
+            else:
+                # Если уже есть, но новый вариант с типом — заменяем
+                if not candidates_dict[key].otype and org.otype:
+                    candidates_dict[key] = org
+
+        candidates = list(candidates_dict.values())
+        return candidates
 
     def select_best_org_name_and_type(self, org: OrganizationReferent, full_text: str):
         """
         Приоритет:
         1) Самая длинная «поверхность» по NAME-слотам, найденная в тексте (с дефисами/тире).
         2) Лучшая «поверхность» из occurrence (если 1) не сработал).
-        3) Фоллбэк: самая длинная валидная NAME-строка из слотов.
+        3) Фоллбэк: самая длинная валидная NAME-строка из слотов (только если есть TYPE).
         Везде обрезаем юр-формы по краям и хвосты реквизитов.
         """
+        # Сначала собираем TYPE
+        best_type = ""
+        for s in org.slots:
+            if s.type_name == OrganizationReferent.ATTR_TYPE:
+                type_value = str(s.value).upper()
+                if type_value in ORG_TYPES:
+                    best_type = type_value
+                    break
+        
         # 1) кандидаты из NAME, реально найденные в тексте
         name_surfaces: list[str] = []
         for s in org.slots:
@@ -94,15 +122,16 @@ class _OrgExtractor(IOrgExtractor):
         if name_surfaces:
             # Берём самую «содержательную» по длине нормализованного текста
             best_name = max(name_surfaces, key=lambda s: len(_normalize_text(s)))
-
+        print(f"DEBUG: NAME surfaces found: {name_surfaces}, best: {best_name}")
+        
         # 2) occurrence как резерв
         if not best_name:
             occ = self._best_surface_from_occurrence(org, full_text)
             if _looks_valid_org_name(occ):
                 best_name = occ
 
-        # 3) фоллбэк — самая длинная валидная NAME-строка
-        if not best_name:
+        # 3) фоллбэк — самая длинная валидная NAME-строка (ТОЛЬКО если есть TYPE!)
+        if not best_name and best_type:
             max_len = 0
             for s in org.slots:
                 if s.type_name == OrganizationReferent.ATTR_NAME:
@@ -110,17 +139,9 @@ class _OrgExtractor(IOrgExtractor):
                     if _looks_valid_org_name(raw) and len(raw) > max_len:
                         best_name, max_len = raw, len(raw)
 
-        # Тип по словарю
-        best_type = ""
-        for s in org.slots:
-            if s.type_name == OrganizationReferent.ATTR_TYPE:
-                type_value = str(s.value).upper()
-                if type_value in ORG_TYPES:
-                    best_type = type_value
-                    break
-
         # финальная подчистка кавычек/пробелов
-        best_name = best_name.strip().strip('«»"“”„\'')
+        best_name = best_name.strip().strip('«»"""„\'')
+        print(f"DEBUG: FINAL NAME: {best_name}, TYPE: {best_type}")
         return {"name": best_name, "type": best_type}
     
     @staticmethod
@@ -155,7 +176,8 @@ class _OrgExtractor(IOrgExtractor):
             'РУСАЛ АЧИНСКИЙ ГЛИНОЗЕМНЫЙ КОМБИНАТ': 'АО',
             'ОК РУСАЛ ТД': 'АО', 
             'РОССИЙСКИЕ ЖЕЛЕЗНЫЕ ДОРОГИ (РЖД)': 'ОАО', 
-            'РЖД': 'ОАО'
+            'РЖД': 'ОАО',
+            'РУСАЛ БРАТСКИЙ АЛЮМИНИЕВЫЙ ЗАВОД': 'ПАО',
         }
         org_id_counter = 0
         for org_full_name, org_type in map_orgs.items():

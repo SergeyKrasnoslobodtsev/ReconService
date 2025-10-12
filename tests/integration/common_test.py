@@ -14,7 +14,7 @@ import sys
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 # ---- настройка имён -----------------------------------------------------------
-SCAN_PDF_NAME = "Акт сверки взаимных расчетов №00000379931 от 30.04.2024.pdf"          # ожидаем True (скан)
+SCAN_PDF_NAME = "bad/РИР-САЗ.pdf"          # ожидаем True (скан) Браз-Юнигрин Пауэр scan_v1
 STRUCTURED_PDF_NAME = "АСР СДД 2 кв.2024 (подп. к-а).pdf"  # ожидаем False (цифровой)
 # ------------------------------------------------------------------------------
 
@@ -42,7 +42,7 @@ def convert_to_pil(pdf_bytes: bytes) -> List[Image.Image]:
     """Convert bytes to PIL image
 
     Args:
-        pdf_bytes (bytes): bytes file pdf
+        pdf_bytes (bytes): bytes file pdfЁ
 
     Returns:
         List[Image]: List PIL images
@@ -57,7 +57,7 @@ def convert_to_pil(pdf_bytes: bytes) -> List[Image.Image]:
 
 def load_document_pdf() -> List[Image.Image]:
     """Загружает страницы из PDF-файла SCAN_PDF в виде списка изображений PIL."""
-    images = convert_from_path(str(SCAN_PDF.resolve()), dpi=300)
+    images = convert_from_path(str(SCAN_PDF.resolve()), dpi=700)
     return images
 
 def draw_label(draw: ImageDraw, text: str, position: Tuple[int, int]) -> ImageDraw:

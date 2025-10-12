@@ -56,4 +56,4 @@ class NERService:
 
     def extract_buyer_reconciliation_details(self, buyer_name: str) -> dict:
         """Извлекает структурную информацию о таблице покупателя для последующего заполнения."""
-        return self.reconciliation_extractor.extract_for_buyer(buyer_name)
+        return self.reconciliation_extractor.extract_for_buyer(buyer_name) 

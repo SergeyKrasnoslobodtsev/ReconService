@@ -38,7 +38,7 @@ class Engine(ABC):
 
     def preprocess(self, gray: np.ndarray) -> np.ndarray:
 
-        border = 0
+        border = 5
         gray = cv2.copyMakeBorder(
             gray, border, border, border, border,
             borderType=cv2.BORDER_CONSTANT,
@@ -58,8 +58,12 @@ class TesseractEngine(Engine):
         
         # $ между цифрами
         text = re.sub(r'(\d)\$(\d)', r'\g<1>8\g<2>', text)
-        # Замена @ на Ф
-        text = re.sub(r'@', 'Ф', text)
+        # Замена @ и ® на Ф
+        text = re.sub(r'@|®', 'Ф', text)
+        text = re.sub(r'©', 'с', text)
+        
+    
+        
         return text
 
     def extract_text(self, image: np.ndarray) -> Tuple[str, List[Tuple[int, int, int, int]]]:
@@ -84,21 +88,20 @@ class TesseractEngine(Engine):
 
 class EasyOcrEngine(Engine):
     def __init__(self):
-        # os.environ["KMP_DEVICE_THREAD_LIMIT"] = "4"
-        # os.environ["OMP_THREAD_LIMIT"] = "4"
-        # import easyocr
+        os.environ["KMP_DEVICE_THREAD_LIMIT"] = "4"
+        os.environ["OMP_THREAD_LIMIT"] = "4"
+        import easyocr
         
-        # self.reader = easyocr.Reader(['ru', 'en'], gpu=False)
-        ...
+        self.reader = easyocr.Reader(['ru', 'en'], gpu=False)
+        
 
     def extract_text(self, image: np.ndarray) -> Tuple[str, List[Tuple[int, int, int, int]]]:
-        # image = self.preprocess(image)
-        # result = self.reader.readtext(image)
-        # text = " ".join([res[1] for res in result])
-        # if text != '':
-        #     boxes = self.detected_text(image)
-        # return text, boxes
-        ...
+        image = self.preprocess(image)
+        result = self.reader.readtext(image)
+        text = " ".join([res[1] for res in result])
+        boxes = [tuple(map(int, res[0][0] + res[0][2])) for res in result]
+        return text, boxes
+        
 
 class PaddleOcrEngine(Engine):
     def __init__(self):

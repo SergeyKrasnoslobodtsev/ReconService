@@ -109,13 +109,13 @@ class ReconciliationActExtractor:
                     continue
                 cell_txt_low = cell.text.lower().strip()
 
-                if "по данным продавца" in normalize(cell_txt_low) or has_match(seller_name, cell_txt_low):
+                if "данным продавца" in normalize(cell_txt_low) or has_match(seller_name, cell_txt_low):
                     main_hdr_cell = cell
                     break
 
             if not main_hdr_cell:
                 self.logger.debug(f"Заголовок продавца не найден в табл. {tbl_idx + 1}.")
-                continue
+                raise Exception(f"Ошибка разбора акта сверки: не найден заголовок продавца в таблице {tbl_idx + 1}.")
             
             self.logger.debug(f"Найден заголовок продавца: '{main_hdr_cell.text}' R{main_hdr_cell.row}C{main_hdr_cell.col}")
 
@@ -125,7 +125,7 @@ class ReconciliationActExtractor:
             cols_ok = (debit_col != -1 and (main_hdr_cell.colspan < 2 or credit_col != -1))
             if not cols_ok:
                 self.logger.warning(f"Не удалось идентифицировать Д/К колонки в табл. {tbl_idx + 1}.")
-                continue
+                raise Exception(f"Ошибка разбора акта сверки: не найдены колонки Дебет/Кредит для продавца в таблице {tbl_idx + 1}.")
             
             self.logger.debug(f"Колонки продавца: Дебет(C{debit_col})" + (f", Кредит(C{credit_col})" if credit_col!=-1 else ""))
             
@@ -239,7 +239,7 @@ class ReconciliationActExtractor:
                 if not cell.text: 
                     continue
                 cell_txt_low = cell.text.lower().strip()
-                if "по данным покупателя" in cell_txt_low or "по данным клиента" in cell_txt_low or buyer_name_norm in cell_txt_low:
+                if "данным покупателя" in cell_txt_low or "данным клиента" in cell_txt_low or buyer_name_norm in cell_txt_low:
                     main_hdr_cell = cell
                     break
                 # if "по данным покупателя" in cell_txt_low: 
@@ -254,7 +254,7 @@ class ReconciliationActExtractor:
             
             if not main_hdr_cell:
                 self.logger.debug(f"Заголовок покупателя не найден в табл. {tbl_idx + 1}.")
-                continue
+                raise Exception(f"Заголовок покупателя не найден в таблице {tbl_idx + 1}.")
             
             self.logger.debug(f"Найден заголовок покупателя: '{main_hdr_cell.text}' R{main_hdr_cell.row}C{main_hdr_cell.col}")
 
@@ -265,7 +265,7 @@ class ReconciliationActExtractor:
             
             if not cols_ok:
                 self.logger.warning(f"Не удалось идентифицировать Д/К колонки в табл. {tbl_idx + 1}.")
-                continue
+                raise Exception(f"Не удалось идентифицировать Д/К колонки в табл. {tbl_idx + 1}.")
             
             self.logger.debug(f"Колонки покупателя: Дебет(C{debit_col})" + (f", Кредит(C{credit_col})" if credit_col!=-1 else ""))
 

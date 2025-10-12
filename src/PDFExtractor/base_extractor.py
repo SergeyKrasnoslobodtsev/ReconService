@@ -264,7 +264,7 @@ class Document:
         tables = self.get_tables()
         if not tables:
             return -1 
-        return max(table.start_page_num for table in tables if table.start_page_num is not None)
+        return max(table.end_page_num for table in tables if table.end_page_num is not None)
 
     def get_first_row_tables_text(self) -> str:
         '''Получаем текст первой строки всех таблиц в документе'''
@@ -298,6 +298,7 @@ class Document:
         for cell in table_obj.cells:
             max_col_idx = max(max_col_idx, cell.col + cell.colspan - 1)
         return max_col_idx + 1  # Return 1-indexed count
+
 
     def get_tables(self) -> List[Table]:
         def _first_row_text_lower(t: Table) -> str:

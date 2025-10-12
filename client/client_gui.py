@@ -122,6 +122,10 @@ class ReconServiceGUI:
                 
                 debit_entries = self.extraction_result.get('debit', [])
                 credit_entries = self.extraction_result.get('credit', [])
+                # for entry in debit_entries:
+                #     entry['value'] = 0.0
+                # for entry in credit_entries:
+                #     entry['value'] = 0.0
                 # debit_entries[3]['value'] = "ntcnsakdlaasdjlad"  # Пример изменения значения дебета
                 output_path = self.client.fill_and_get_pdf(
                     self.current_process_id, debit_entries, credit_entries

@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .adaptive_image_processing import AdaptiveImageProcessing
 
-CELL_ROI_PADDING = 0
+CELL_ROI_PADDING = 5
 
 # http://ieeexplore.ieee.org/document/9752204
 class ScanExtractor(BaseExtractor):
@@ -48,6 +48,9 @@ class ScanExtractor(BaseExtractor):
         h_lines, v_lines = find_lines(cleaned)
 
         mask = h_lines + v_lines
+
+        kernel_thicken = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))
+        mask_thickened = cv2.dilate(mask, kernel_thicken, iterations=1)
         # Image.fromarray(mask).show()
         # найдем контуры таблиц
         contours = find_max_contours(mask, max=5)
@@ -65,10 +68,10 @@ class ScanExtractor(BaseExtractor):
                 v_lines[y:y+h, x:x+w],
                 h_lines[y:y+h, x:x+w]
             )
-            
+            mask_roi_thickened = mask_thickened[y:y+h, x:x+w]
             cleaned[y:y+h, x:x+w] = remove_lines_by_mask(
                 cleaned[y:y+h, x:x+w],
-                mask_roi
+                mask_roi_thickened
             )
             # получаем сетку таблицы (по умолчанию объединим только столбцы)
             # можно объдинить и столбцы и строки, но есть таблицы, где строки объединены 
@@ -95,10 +98,11 @@ class ScanExtractor(BaseExtractor):
                         blobs= [cell.blobs for cell in cells]
                     )
                 )
-
+        
+        
         # cleaned = gray
         # посмотри что получилось
-        # Image.fromarray(cleaned).show()
+        Image.fromarray(cleaned).show()
         
         tasks: List[Tuple[Any, np.ndarray]] = []
         for p in paragraphs:
@@ -639,8 +643,10 @@ class ScanExtractor(BaseExtractor):
         n_rows, n_cols = len(ys) - 1, len(xs) - 1
         used = [[False]*n_cols for _ in range(n_rows)]
         margin = 0  # Отступ от краев ячейки при проверке линии
-        line_frac = 0.2 # Минимальная доля длины линии относительно высоты/ширины ячейки
+        line_frac = 0.1 # Минимальная доля длины линии относительно высоты/ширины ячейки
         line_check_thickness = 3 # Толщина области вокруг линии для проверки (в пикселях в каждую сторону)
+        min_line_density = 0.6  # 60% пикселей должны быть белыми
+
         
         cells: list[Cell] = []
         for r_idx in range(n_rows):
@@ -680,9 +686,12 @@ class ScanExtractor(BaseExtractor):
                         
                         min_len_for_separator = int((y_check_e - y_check_s) * line_frac)
                         
-                        if has_line(region_to_check_for_line, min_len_for_separator, axis=0): # axis=0 для вертикальной линии
-                            break # Найдена разделяющая линия, прекращаем объединение столбцов
+                        # if has_line(region_to_check_for_line, min_len_for_separator, axis=0):
+                        #     break 
                         
+                        if self._has_continuous_line(region_to_check_for_line, min_len_for_separator, 
+                                                 axis=0, min_density=min_line_density):
+                            break 
                         # Линия не найдена, расширяем colspan
                         current_x1_merged = xs[next_c + 1] # Обновляем правую границу объединенной ячейки
                         col_span += 1
@@ -708,9 +717,13 @@ class ScanExtractor(BaseExtractor):
                         region_to_check_for_line = pure_h[y_check_s:y_check_e, x_check_s:x_check_e]
                         min_len_for_separator = int((x_check_e - x_check_s) * line_frac)
 
-                        if has_line(region_to_check_for_line, min_len_for_separator, axis=1): # axis=1 для горизонтальной линии
-                            break # Найдена разделяющая линия, прекращаем объединение строк
+                        # if has_line(region_to_check_for_line, min_len_for_separator, axis=1): # axis=1 для горизонтальной линии
+                        #     break # Найдена разделяющая линия, прекращаем объединение строк
                         
+                        if self._has_continuous_line(region_to_check_for_line, min_len_for_separator, 
+                                                 axis=1, min_density=min_line_density):
+                            break
+
                         current_y1_merged = ys[next_r + 1] # Обновляем нижнюю границу
                         row_span += 1
                 
@@ -824,3 +837,48 @@ class ScanExtractor(BaseExtractor):
             split_positions.append(split_y)
         
         return split_positions
+    
+    def _has_continuous_line(self, region: np.ndarray, min_length: int, axis: int, min_density: float = 0.6) -> bool:
+        """
+        Проверяет наличие непрерывной линии с достаточной плотностью.
+        
+        Args:
+            region: Область для проверки
+            min_length: Минимальная длина линии
+            axis: 0 для вертикальной линии, 1 для горизонтальной
+            min_density: Минимальная плотность белых пикселей (0-1)
+        
+        Returns:
+            True если найдена непрерывная линия с достаточной плотностью
+        """
+        if region.size == 0:
+            return False
+        
+        # Проецируем регион на ось
+        if axis == 0:  # Вертикальная линия
+            projection = np.max(region, axis=1)
+        else:  # Горизонтальная линия
+            projection = np.max(region, axis=0)
+        
+        # Бинаризуем проекцию
+        binary_projection = (projection > 127).astype(np.uint8)
+        
+        # Находим самую длинную непрерывную последовательность
+        max_continuous = 0
+        current_continuous = 0
+        total_white_pixels = 0
+        
+        for pixel in binary_projection:
+            if pixel > 0:
+                current_continuous += 1
+                total_white_pixels += 1
+                max_continuous = max(max_continuous, current_continuous)
+            else:
+                current_continuous = 0
+        
+        # Проверяем длину и плотность
+        if max_continuous < min_length:
+            return False
+        
+        density = total_white_pixels / len(binary_projection)
+        return density >= min_density

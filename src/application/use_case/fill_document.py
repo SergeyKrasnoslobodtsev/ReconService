@@ -143,7 +143,7 @@ class FillDocumentUseCase:
             
         except Exception as e:
             self._logger.error(f"Ошибка при извлечении данных покупателя: {e}")
-            return {'debit': {}, 'credit': {}}
+            raise RuntimeError(f"Не удалось извлечь данные покупателя из документа: {str(e)}") from e
     
     def _fill_cells(
         self,
@@ -212,10 +212,7 @@ class FillDocumentUseCase:
         col_idx = key[2]
         orig_val = buyer_lookup[key]['value']
         
-        # Сравниваем значения
-        if float(orig_val) == float(value):
-            self._logger.debug(f"Значения одинаковы для {entry_type} [{table_idx}, {row_idx}]: {value}")
-            return False  # Не заполняем одинаковые значения
+        
         
         # Находим ячейку в таблице
         if table_idx >= len(tables):
@@ -232,6 +229,11 @@ class FillDocumentUseCase:
             self._logger.warning(f"Ячейка не найдена [{table_idx}, {row_idx}, {col_idx}]")
             return False
         
+        # Сравниваем значения
+        if float(orig_val) == float(value) and getattr(cell, 'has_text', False):
+            self._logger.debug(f"Значения одинаковы для {entry_type} [{table_idx}, {row_idx}]: {value}")
+            return False  # Не заполняем одинаковые значения
+
         # Определяем страницу
         page_num = getattr(cell, 'original_page_num', None) or getattr(table, 'start_page_num', 0)
         if page_num is None or page_num >= len(render_images):

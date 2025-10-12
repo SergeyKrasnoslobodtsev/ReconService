@@ -1,3 +1,4 @@
+from copy import deepcopy
 import requests
 import base64
 import time
@@ -163,10 +164,15 @@ def process_document(pdf_path: str, server_url: str = "http://127.0.0.1:8000"):
         # 2. Ждем обработки
         result = client.wait_for_processing(process_id)
         
-        # 3. Получаем данные дебета и кредита
-        debit_entries = result.get('debit', [])
-        credit_entries = result.get('credit', [])
-        
+        # 3. Получаем данные дебета и кредита заполним нулями
+        # Заполняем все значения дебета и кредита нулями для теста
+        debit_entries = deepcopy(result.get('debit', []))
+        credit_entries = deepcopy(result.get('credit', []))
+        for entry in debit_entries:
+            entry['value'] = 0
+        for entry in credit_entries:
+            entry['value'] = 0
+
         # 4. Заполняем документ теми же данными (для демонстрации)
         output_path = client.fill_and_get_pdf(process_id, debit_entries, credit_entries)
         
