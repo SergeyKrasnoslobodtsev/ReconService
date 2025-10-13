@@ -1,4 +1,5 @@
-from abc import ABC
+from abc import ABC, abstractmethod
+from typing import Protocol
 from dataclasses import dataclass, field
 import enum
 import logging
@@ -301,235 +302,337 @@ class Document:
 
 
     def get_tables(self) -> List[Table]:
-        def _first_row_text_lower(t: Table) -> str:
-            if not t.cells or not t.rows:
-                return ""
-            return " ".join((c.text or "").lower() for c in t.rows[0] if c.text)
-
-        # 1) Собираем "поток" элементов (параграфы+таблицы), отсортированный по (страница, y1)
-        all_elements = []
-        for page_data in self.pages:
-            for p_obj in page_data.paragraphs:
-                all_elements.append({'type': 'paragraph', 'obj': p_obj,
-                                    'page_num': page_data.num_page, 'y1': p_obj.bbox.y1})
-            for t_obj in page_data.tables:
-                if t_obj.cells:
-                    all_elements.append({'type': 'table', 'obj': t_obj,
-                                        'page_num': page_data.num_page, 'y1': t_obj.bbox.y1})
-        all_elements.sort(key=lambda x: (x['page_num'], x['y1']))
-
+        """
+        Извлекает логические таблицы из документа с учетом новых правил:
+        1. Таблицы на одной странице НЕ объединяются
+        2. Таблицы на разных страницах объединяются, если:
+           - Следующая таблица находится вверху страницы
+           - В её первой строке нет слов "дебет" или "кредит"
+           - Над ней нет большого текста (кроме номера страницы)
+        """
+        # Инициализация компонентов
+        stream_builder = DocumentStreamBuilder()
+        fragment_factory = TableFragmentFactory()
+        
+        # Создание стратегий объединения
+        same_page_strategy = SamePageStrategy()
+        cross_page_strategy = CrossPageStrategy(self.pages)
+        merge_decider = TableMergeDecider([same_page_strategy, cross_page_strategy])
+        
+        table_builder = LogicalTableBuilder()
+        paragraph_analyzer = ParagraphAnalyzer()
+        
+        # Построение потока элементов
+        all_elements = stream_builder.build(self.pages)
+        
+        # Обработка потока
         logical_tables: List[Table] = []
-
-        # Текущее «логическое» объединение
-        acc_cells: List[Cell] = []
-        row_offset = 0
-        first_bbox: Optional[BBox] = None
-        start_page: Optional[int] = None
-        last_page: int = -1
-        current_col_count: int = -1
-
-        # Флаг — был в «потоке» смысловой параграф после последнего фрагмента
-        had_semantic_paragraph_after_last_fragment = False
-
+        current_fragments: List[TableFragment] = []
+        had_semantic_paragraph = False
+        
         for el in all_elements:
             if el['type'] == 'paragraph':
                 para: Paragraph = el['obj']
-                # колонтитулы не считаем разделителями
-                if para.type not in (ParagraphType.HEADER, ParagraphType.FOOTER):
-                    # видим смысловой параграф — помечаем границу
-                    had_semantic_paragraph_after_last_fragment = True
-
+                if paragraph_analyzer.is_semantic(para):
+                    had_semantic_paragraph = True
+            
             else:  # table
-                frag: Table = el['obj']
-                if not frag.cells:
+                table_obj: Table = el['obj']
+                if not table_obj.cells:
                     continue
-
-                frag_first_row_text = _first_row_text_lower(frag)
-                frag_cols = self._get_table_column_count(frag)
-
-                starts_new = False
-
-                if not acc_cells:
-                    starts_new = True
+                
+                current_fragment = fragment_factory.create(
+                    table=table_obj,
+                    page_num=el['page_num'],
+                    y1=el['y1']
+                )
+                
+                should_start_new = False
+                
+                if not current_fragments:
+                    # Первый фрагмент
+                    should_start_new = False
                 else:
-                    if not acc_cells:
-                        starts_new = True
-                    else:
-                        starts_new = (
-                            had_semantic_paragraph_after_last_fragment
-                            or ("по данным" in frag_first_row_text)
-                            or (current_col_count > 0 and frag_cols > 0 and current_col_count != frag_cols)
-                        )
-
-                if starts_new and acc_cells:
-                    logical_tables.append(Table(
-                        bbox=first_bbox,
-                        cells=list(acc_cells),
-                        start_page_num=start_page,
-                        end_page_num=last_page
-                    ))
-                    acc_cells.clear()
-                    row_offset = 0
-                    first_bbox = None
-                    start_page = None
-                    last_page = -1
-                    current_col_count = -1
-
-                if starts_new or not acc_cells:
-                    first_bbox = frag.bbox
-                    start_page = el['page_num']
-                    current_col_count = frag_cols
-
-                # Перекладываем ячейки с учетом row_offset и сохраняем original_page_num
-                max_row_end = 0
-                for cell in frag.cells:
-                    acc_cells.append(Cell(
-                        bbox=cell.bbox,
-                        row=cell.row + row_offset,
-                        col=cell.col,
-                        colspan=cell.colspan,
-                        rowspan=cell.rowspan,
-                        text=cell.text,
-                        blobs=list(cell.blobs),
-                        original_page_num=el['page_num']
-                    ))
-                    max_row_end = max(max_row_end, cell.row + cell.rowspan)
-
-                row_offset += max_row_end
-                last_page = el['page_num']
-                had_semantic_paragraph_after_last_fragment = False
-
-        # добираем хвост
-        if acc_cells and first_bbox is not None:
-            logical_tables.append(Table(
-                bbox=first_bbox,
-                cells=list(acc_cells),
-                start_page_num=start_page,
-                end_page_num=last_page
-            ))
-
+                    prev_fragment = current_fragments[-1]
+                    
+                    # Проверяем условия для начала новой таблицы
+                    should_start_new = (
+                        had_semantic_paragraph  # Был семантический параграф
+                        or "по данным" in current_fragment.first_row_text  # Ключевая фраза
+                        or not merge_decider.should_merge(prev_fragment, current_fragment)  # Стратегии запрещают
+                    )
+                
+                if should_start_new:
+                    # Завершаем текущую логическую таблицу
+                    if current_fragments:
+                        logical_table = table_builder.build(current_fragments)
+                        if logical_table:
+                            logical_tables.append(logical_table)
+                    current_fragments = []
+                    had_semantic_paragraph = False
+                
+                # Добавляем фрагмент к текущей логической таблице
+                current_fragments.append(current_fragment)
+                had_semantic_paragraph = False
+        
+        # Обработка последнего фрагмента
+        if current_fragments:
+            logical_table = table_builder.build(current_fragments)
+            if logical_table:
+                logical_tables.append(logical_table)
+        
         return logical_tables
         
-    def to_excel(self, file_path: str):
-        """
-        Сохраняет все логические таблицы из документа в файл Excel.
-        Таблицы, разделенные параграфами, считаются новыми.
-        Части таблиц без параграфов между ними (даже через страницы) объединяются.
-        Каждая логическая таблица сохраняется на отдельный лист.
-        Ячейки будут иметь рамки.
+class TableMergeStrategy(Protocol):
+    """Протокол для стратегий объединения таблиц."""
+    def should_merge(self, prev_fragment: 'TableFragment', curr_fragment: 'TableFragment') -> bool:
+        """Определяет, нужно ли объединить два фрагмента таблицы."""
+        ...
 
-        Args:
-            file_path (str): Путь для сохранения файла Excel.
-        """
-        wb = Workbook()
-        if "Sheet" in wb.sheetnames:
-            default_sheet = wb["Sheet"]
-            wb.remove(default_sheet)
+@dataclass
+class TableFragment:
+    """Представляет фрагмент таблицы на одной странице."""
+    table: Table
+    page_num: int
+    y1: int
+    first_row_text: str
+    column_count: int
 
-        all_elements = []
-        for page_data in self.pages:
-            for p_obj in page_data.paragraphs:
-                all_elements.append({'type': 'paragraph', 'obj': p_obj, 
-                                     'page_num': page_data.num_page, 'y1': p_obj.bbox.y1})
-            for t_obj in page_data.tables:
-                if t_obj.cells: 
-                    all_elements.append({'type': 'table', 'obj': t_obj, 
-                                         'page_num': page_data.num_page, 'y1': t_obj.bbox.y1})
+class ColumnCountAnalyzer:
+    """Отвечает за анализ количества колонок в таблице."""
+    
+    @staticmethod
+    def get_column_count(table_obj: Table) -> int:
+        """Вычисляет количество колонок в таблице."""
+        if not table_obj.cells:
+            return 0
+        max_col_idx = 0
+        for cell in table_obj.cells:
+            max_col_idx = max(max_col_idx, cell.col + cell.colspan - 1)
+        return max_col_idx + 1
+
+class FirstRowTextExtractor:
+    """Извлекает текст первой строки таблицы."""
+    
+    @staticmethod
+    def extract(table_obj: Table) -> str:
+        """Возвращает текст первой строки таблицы в нижнем регистре."""
+        if not table_obj.cells or not table_obj.rows:
+            return ""
+        return " ".join((c.text or "").lower() for c in table_obj.rows[0] if c.text)
+
+class ParagraphAnalyzer:
+    """Анализирует параграфы для определения семантических границ."""
+    
+    @staticmethod
+    def is_semantic(paragraph: Paragraph) -> bool:
+        """Проверяет, является ли параграф семантически значимым (не колонтитул)."""
+        return paragraph.type not in (ParagraphType.HEADER, ParagraphType.FOOTER)
+    
+    @staticmethod
+    def is_large_text(paragraph: Paragraph, threshold: int = 100) -> bool:
+        """Проверяет, является ли параграф большим текстом."""
+        if not paragraph.text:
+            return False
+        return len(paragraph.text.strip()) > threshold
+    
+    @staticmethod
+    def contains_keywords(paragraph: Paragraph, keywords: List[str]) -> bool:
+        """Проверяет наличие ключевых слов в параграфе."""
+        if not paragraph.text:
+            return False
+        text_lower = paragraph.text.lower()
+        return any(keyword in text_lower for keyword in keywords)
+
+class SamePageStrategy:
+    """таблицы на одной странице НЕ объединяются."""
+    
+    def should_merge(self, prev_fragment: TableFragment, curr_fragment: TableFragment) -> bool:
+        if prev_fragment.page_num == curr_fragment.page_num:
+            return False
+        return True  # На разных страницах - передаем решение дальше
+
+class CrossPageStrategy:
+    """таблицы на разных страницах объединяются при выполнении условий."""
+    
+    def __init__(self, document_pages: List[Page]):
+        self.document_pages = document_pages
+        self.paragraph_analyzer = ParagraphAnalyzer()
+    
+    def should_merge(self, prev_fragment: TableFragment, curr_fragment: TableFragment) -> bool:
+        # Если на одной странице - не наша зона ответственности
+        if prev_fragment.page_num == curr_fragment.page_num:
+            return True  # Пропускаем
         
-        all_elements.sort(key=lambda x: (x['page_num'], x['y1']))
-
-        logical_tables_cell_lists = []
-        current_accumulated_cells = []
-        current_row_offset = 0
-
-        for element_data in all_elements:
-            el_type = element_data['type']
-            el_obj = element_data['obj']
-
-            if el_type == 'table':
-                table_fragment: Table = el_obj
-                
-                max_rows_in_this_fragment = 0
-                if table_fragment.cells:
-                    for cell in table_fragment.cells:
-                        adjusted_cell = Cell(
-                            bbox=cell.bbox,
-                            row=cell.row + current_row_offset,
-                            col=cell.col,
-                            colspan=cell.colspan,
-                            rowspan=cell.rowspan,
-                            text=cell.text,
-                            blobs=list(cell.blobs)
-                        )
-                        current_accumulated_cells.append(adjusted_cell)
-                        max_rows_in_this_fragment = max(max_rows_in_this_fragment, cell.row + cell.rowspan)
-                
-                current_row_offset += max_rows_in_this_fragment
+        # Текущая таблица должна быть в верхней части страницы
+        current_page = self.document_pages[curr_fragment.page_num]
+        if not self._is_table_at_top(curr_fragment, current_page):
+            return False
+        
+        #В первой строке текущей таблицы НЕ должно быть "дебет" или "кредит"
+        if self._has_debet_kredit_in_first_row(curr_fragment.first_row_text):
+            return False
+        
+        # Над таблицей НЕ должно быть большого текста (кроме номера страницы)
+        if self._has_large_text_above(curr_fragment, current_page):
+            return False
+        
+        # Количество колонок должно совпадать
+        # if prev_fragment.column_count != curr_fragment.column_count:
+        #     return False
+        
+        return True
+    
+    def _is_table_at_top(self, fragment: TableFragment, page: Page, threshold: float = 0.3) -> bool:
+        """Проверяет, находится ли таблица в верхней части страницы."""
+        if not page.tables:
+            return False
+        
+        # Находим высоту страницы через первую таблицу или параграф
+        page_height = 0
+        if page.tables:
+            page_height = max(t.bbox.y2 for t in page.tables)
+        if page.paragraphs:
+            page_height = max(page_height, max(p.bbox.y2 for p in page.paragraphs))
+        
+        if page_height == 0:
+            return True  # Нет данных о высоте, считаем что вверху
+        
+        # Таблица считается вверху, если её Y1 в пределах верхних 30% страницы
+        return fragment.y1 / page_height < threshold
+    
+    def _has_debet_kredit_in_first_row(self, first_row_text: str) -> bool:
+        """Проверяет наличие слов 'дебет' или 'кредит' в первой строке."""
+        keywords = ['дебет', 'кредит', 'debet', 'kredit']
+        return any(keyword in first_row_text for keyword in keywords)
+    
+    def _has_large_text_above(self, fragment: TableFragment, page: Page, 
+                             min_length: int = 100) -> bool:
+        """Проверяет наличие большого текста над таблицей (игнорируя номера страниц)."""
+        table_y1 = fragment.y1
+        
+        for para in page.paragraphs:
+            # Параграф должен быть выше таблицы
+            if para.bbox.y2 > table_y1:
+                continue
             
-            elif el_type == 'paragraph':
-                if current_accumulated_cells:
-                    logical_tables_cell_lists.append(list(current_accumulated_cells))
-                    current_accumulated_cells.clear()
-                    current_row_offset = 0
+            # Игнорируем колонтитулы
+            if not self.paragraph_analyzer.is_semantic(para):
+                continue
+            
+            # Игнорируем короткие тексты (номера страниц)
+            if not para.text or len(para.text.strip()) < min_length:
+                continue
+            
+            # Проверяем, не является ли это просто номером страницы
+            text_stripped = para.text.strip()
+            if text_stripped.isdigit() and len(text_stripped) < 5:
+                continue
+            
+            # Найден большой текст над таблицей
+            return True
+        
+        return False
 
-        if current_accumulated_cells:
-            logical_tables_cell_lists.append(list(current_accumulated_cells))
+class TableMergeDecider:
+    """(SRP) Принимает решение об объединении на основе цепочки стратегий."""
+    
+    def __init__(self, strategies: List[TableMergeStrategy]):
+        self.strategies = strategies
+    
+    def should_merge(self, prev_fragment: TableFragment, curr_fragment: TableFragment) -> bool:
+        """Применяет все стратегии последовательно."""
+        for strategy in self.strategies:
+            if not strategy.should_merge(prev_fragment, curr_fragment):
+                return False
+        return True
 
-        if not logical_tables_cell_lists:
-            if not wb.sheetnames:
-                wb.create_sheet(title="NoTablesFound")
-        else:
-            # Определяем стиль границы
-            thin_border_side = Side(border_style="thin", color="000000")
-            cell_border = Border(left=thin_border_side, 
-                                 right=thin_border_side, 
-                                 top=thin_border_side, 
-                                 bottom=thin_border_side)
+class LogicalTableBuilder:
+    """Строит логические таблицы из фрагментов."""
+    
+    @staticmethod
+    def build(fragments: List[TableFragment]) -> Table:
+        """Объединяет фрагменты в одну логическую таблицу."""
+        if not fragments:
+            return None
+        
+        acc_cells = []
+        row_offset = 0
+        first_bbox = fragments[0].table.bbox
+        start_page = fragments[0].page_num
+        last_page = fragments[-1].page_num
+        
+        max_columns = max(fragment.column_count for fragment in fragments)
 
-            for i, final_table_cells in enumerate(logical_tables_cell_lists):
-                sheet_name = f"Table_{i + 1}"
-                if len(sheet_name) > 31: 
-                    sheet_name = f"Tb{i+1}"[:31] 
-                
-                ws = wb.create_sheet(title=sheet_name)
+        for fragment in fragments:
+            max_row_end = 0
+            col_offset = max_columns - fragment.column_count
+            for cell in fragment.table.cells:
+                acc_cells.append(Cell(
+                    bbox=cell.bbox,
+                    row=cell.row + row_offset,
+                    col=cell.col + col_offset,
+                    colspan=cell.colspan,
+                    rowspan=cell.rowspan,
+                    text=cell.text,
+                    blobs=list(cell.blobs),
+                    original_page_num=fragment.page_num
+                ))
+                max_row_end = max(max_row_end, cell.row + cell.rowspan)
 
-                if not final_table_cells:
-                    continue
+            row_offset += max_row_end
+  
+        
+        return Table(
+            bbox=first_bbox,
+            cells=acc_cells,
+            start_page_num=start_page,
+            end_page_num=last_page
+        )
 
-                for cell_data in final_table_cells:
-                    start_row_excel = cell_data.row + 1
-                    start_col_excel = cell_data.col + 1
-                    
-                    excel_cell_obj = ws.cell(row=start_row_excel, column=start_col_excel, value=cell_data.text)
-                    
-                    # Применяем рамку ко всем ячейкам, которые будут частью объединенной или одиночной ячейки
-                    # Для объединенных ячеек стиль применяется к верхней левой ячейке диапазона
-                    excel_cell_obj.border = cell_border
-                    excel_cell_obj.alignment = Alignment(wrap_text=True, vertical='top') # Выравнивание по умолчанию
+class DocumentStreamBuilder:
+    """(SRP) Строит поток элементов документа (параграфы + таблицы)."""
+    
+    @staticmethod
+    def build(pages: List[Page]) -> List[dict]:
+        """Создает отсортированный поток всех элементов документа."""
+        all_elements = []
+        for page_data in pages:
+            for p_obj in page_data.paragraphs:
+                all_elements.append({
+                    'type': 'paragraph',
+                    'obj': p_obj,
+                    'page_num': page_data.num_page,
+                    'y1': p_obj.bbox.y1
+                })
+            for t_obj in page_data.tables:
+                if t_obj.cells:
+                    all_elements.append({
+                        'type': 'table',
+                        'obj': t_obj,
+                        'page_num': page_data.num_page,
+                        'y1': t_obj.bbox.y1
+                    })
+        all_elements.sort(key=lambda x: (x['page_num'], x['y1']))
+        return all_elements
 
-                    if cell_data.rowspan > 1 or cell_data.colspan > 1:
-                        end_row_excel = start_row_excel + cell_data.rowspan - 1
-                        end_col_excel = start_col_excel + cell_data.colspan - 1
-                        try:
-                            ws.merge_cells(start_row=start_row_excel, 
-                                           start_column=start_col_excel, 
-                                           end_row=end_row_excel, 
-                                           end_column=end_col_excel)
-                            # Для объединенных ячеек, стиль рамки и выравнивание уже применены к excel_cell_obj
-                            # Можно добавить специфичное выравнивание для объединенных ячеек, если нужно
-                            excel_cell_obj.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-                        except Exception:
-                            pass 
-                    else: # Для одиночных ячеек рамка и выравнивание уже применены
-                        excel_cell_obj.alignment = Alignment(wrap_text=True, vertical='top') # Уже установлено выше
+class TableFragmentFactory:
+    """(SRP) Создает TableFragment из данных таблицы."""
+    
+    def __init__(self):
+        self.column_analyzer = ColumnCountAnalyzer()
+        self.text_extractor = FirstRowTextExtractor()
+    
+    def create(self, table: Table, page_num: int, y1: int) -> TableFragment:
+        """Создает фрагмент таблицы с предварительно вычисленными метаданными."""
+        return TableFragment(
+            table=table,
+            page_num=page_num,
+            y1=y1,
+            first_row_text=self.text_extractor.extract(table),
+            column_count=self.column_analyzer.get_column_count(table)
+        )
 
-                for col_idx_ws in range(1, ws.max_column + 1):
-                    column_letter = get_column_letter(col_idx_ws)
-                    ws.column_dimensions[column_letter].autosize = True
-        try:
-            wb.save(file_path)
-        except Exception as e:
-            raise
 
 class BaseExtractor(ABC):
     def __init__(self):
