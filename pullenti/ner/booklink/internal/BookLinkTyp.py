@@ -1,0 +1,35 @@
+﻿# SDK Pullenti Lingvo, version 4.29, march 2025. Copyright (c) 2013-2025, Pullenti. All rights reserved.
+# Non-Commercial Freeware and Commercial Software.
+# This class is generated using the converter Unisharping (www.unisharping.ru) from Pullenti C# project.
+# The latest version of the code is available on the site www.pullenti.ru
+
+from enum import IntEnum
+
+class BookLinkTyp(IntEnum):
+    UNDEFINED = 0
+    NUMBER = 1
+    PERSON = 2
+    EDITORS = 3
+    SOSTAVITEL = 4
+    NAME = 5
+    NAMETAIL = 6
+    DELIMETER = 7
+    TYPE = 8
+    YEAR = 9
+    PAGES = 10
+    PAGERANGE = 11
+    GEO = 12
+    MISC = 13
+    ANDOTHERS = 14
+    TRANSLATE = 15
+    PRESS = 16
+    N = 17
+    VOLUME = 18
+    ELECTRONRES = 19
+    URL = 20
+    SEE = 21
+    TAMZE = 22
+    
+    @classmethod
+    def has_value(cls, value):
+        return any(value == item.value for item in cls)
