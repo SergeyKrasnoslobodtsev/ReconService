@@ -215,12 +215,12 @@ class AdaptiveImageProcessing:
     def _process_low_contrast(self, gray: np.ndarray, metrics: dict) -> np.ndarray:
         """Обработка низкого контраста (тусклый текст)"""
 
-        alpha = 0.5
+        alpha = 0.2
         beta = (1.0 - alpha)
         gamma = 0
         adjusted = cv2.addWeighted(gray, alpha=alpha, src2=gray, beta=beta, gamma=gamma)
         
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8,8))
         enhanced = clahe.apply(adjusted)
         
         # # Если есть шум, сначала убираем его

@@ -102,7 +102,7 @@ class ScanExtractor(BaseExtractor):
         
         # cleaned = gray
         # посмотри что получилось
-        Image.fromarray(cleaned).show()
+        # Image.fromarray(cleaned).show()
         
         tasks: List[Tuple[Any, np.ndarray]] = []
         for p in paragraphs:

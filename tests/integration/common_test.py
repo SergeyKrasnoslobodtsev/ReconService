@@ -14,7 +14,7 @@ import sys
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 # ---- настройка имён -----------------------------------------------------------
-SCAN_PDF_NAME = "bad/126164.pdf"          # ожидаем True (скан) Браз-Юнигрин Пауэр scan_v1
+SCAN_PDF_NAME = "bad/ТГК2-САЗ.pdf"          # ожидаем True (скан) Браз-Юнигрин Пауэр scan_v1
 STRUCTURED_PDF_NAME = "АСР СДД 2 кв.2024 (подп. к-а).pdf"  # ожидаем False (цифровой)
 # ------------------------------------------------------------------------------
 
